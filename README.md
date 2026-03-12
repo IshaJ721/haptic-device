@@ -46,7 +46,16 @@ Check WINDOWS.md for details on installation.
 6. Create the directory `data` in `bin/resources` and move the file `global_minima.txt` there
 7. Run `make` in the `haptic-device/PyAMFF` folder
 8. Run `make` in the `haptic-device` folder
-9. Your directory structure should look like so:
+
+Here, if running into compilation errors on MacOS:
+- The current directory's Makefile supports Python 3.8, so change to version-agnostic code or 3.13 (as of 3/26)
+- If GLFW/glfw3.h was not found:
+Update the following variables in the Makefile:
+CXXFLAGS += -I/opt/homebrew/include
+LDFLAGS  += -L/opt/homebrew/lib
+LDLIBS   += -lglfw
+
+10. Your directory structure should look like so:
 <pre>
 chai3d-3.2.0/
 ├── bin
