@@ -20,7 +20,7 @@ Choose the potential energy surface by adding a second argument:
 ```
 ./haptic-device 25 morse
 ```
-The default is Lennard-Jones(lj). Other options are morse, ase, pyamff.
+The default is Lennard-Jones(lj). Other options are morse and ase.
 
 ## Build Instructions
 
@@ -38,15 +38,14 @@ Check WINDOWS.md for details on installation.
    ```
 3. Install the required packages using the command
     ```
-    sudo apt-get install libusb-1.0-0-dev libasound2-dev freeglut3-dev xorg-dev python3-dev gfortran
+    sudo apt-get install libusb-1.0-0-dev libasound2-dev freeglut3-dev xorg-dev python3-dev
     ```
 
 4. Run "make" in the chai3d-3.2.0 directory
 5. Clone this repo into the chai3d-3.2.0 directory
 6. Create the directory `data` in `bin/resources` and move the file `global_minima.txt` there
-7. Run `make` in the `haptic-device/PyAMFF` folder
-8. Run `make` in the `haptic-device` folder
-9. Your directory structure should look like so:
+7. Run `make` in the `haptic-device` folder
+8. Your directory structure should look like so:
 <pre>
 chai3d-3.2.0/
 ├── bin
@@ -63,18 +62,17 @@ chai3d-3.2.0/
     ├── <b>LJ.cpp</b>
     ├── <b>Makefile</b>
     ├── <b>obj</b>
-    ├── <b>PyAMFF</b>    
     └── <b>README.md</b>
 </pre>
 
 At this point, the software should run with mouse and keyboard. The following steps are for setting up the haptic device
-10. You may to change lines involving the relative file path
+9. You may to change lines involving the relative file path
 ```c++
 bool fileload = texture->loadFromFile(RESOURCE_PATH("../resources/images/spheremap-3.jpg"));
 ```
 to the absolute file path.
 
-11. Run the following commands while in chai3d-3.20/:
+10. Run the following commands while in chai3d-3.20/:
   * `sudo cp ./external/DHD/doc/linux/51-forcedimension.rules /etc/udev/rules.d`
   * `sudo udevadm control --reload-rules && udevadm trigger`
 
@@ -90,13 +88,6 @@ The textbook is too big to upload so here's the link: http://www.charleshouserjr
 
 
 ## Notes
-
-### PyAMFF
-In order to use pyamff, you will need to have the following files in the lin-x86_64 folder:
-   * mlff.pyamff
-   * pyamff.pt
-   * fpParas.dat
-These must be valid files for a pyamff run and must all correspond to the same molecular system and fingerprint setup
 
 ### Controls
 * The buttons are labeled 0-3, starting at the center and going clockwise for user switches

@@ -40,11 +40,10 @@
 #include "inputHandling.h"
 #include "potentials.h"
 #include "utility.h"
-#include "PyAMFF/PyAMFF.h"
 #include "boundaryConditions.h"
 //------------------------------------------------------------------------------
 #include <GLFW/glfw3.h>
-#include <python3.8/Python.h>
+#include <Python.h>
 #include <math.h>
 #include <unistd.h>
 #include <chrono>
@@ -689,9 +688,6 @@ int main(int argc, char *argv[]) {
     if (arg == "morse" || arg == "m") {
       energySurface = MORSE;
       calculatorPtr = new morseCalculator();
-    }else if (arg == "pyamff" || arg == "p"){
-      energySurface = PYAMFF;
-      calculatorPtr = new pyamffCalculator(spheres.size());
     }else if (arg == "ase" || arg == "a"){
 
       // These are placeholders for the moment
@@ -847,6 +843,8 @@ int main(int argc, char *argv[]) {
     potentialName = "Lennard Jones Potential";
   } else if (energySurface == MORSE) {
     potentialName = "Morse Potential";
+  } else if (energySurface == ASE) {
+    potentialName = "ASE Potential";
   }
   potentialLabel->setText("Potential energy surface: " + potentialName);
   //--------------------------------------------------------------------------

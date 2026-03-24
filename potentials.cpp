@@ -1,8 +1,339 @@
 #include "potentials.h"
+
+#include <Python.h>
+
+#include <cmath>
+#include <cstdlib>
+#include <iostream>
+#include <string>
 #include <vector>
+
 #include "atom.h"
-#include <python3.8/Python.h>
-#include "PyAMFF/PyAMFF.h"
+
+extern double centerCoords[3];
+
+namespace {
+
+constexpr double kDistanceScale = 0.02;
+constexpr double kDefaultCellLength = 100.0;
+
+[[noreturn]] void failWithPythonError(const char* message) {
+  PyErr_Print();
+  std::cerr << message << std::endl;
+  std::exit(1);
+}
+
+std::vector<double> flattenPositions(const std::vector<Atom*>& spheres) {
+  std::vector<double> positions;
+  positions.reserve(spheres.size() * 3);
+
+  for (const Atom* sphere : spheres) {
+    cVector3d pos = sphere->getLocalPos();
+    positions.push_back(pos.x() / kDistanceScale + centerCoords[0]);
+    positions.push_back(pos.y() / kDistanceScale + centerCoords[1]);
+    positions.push_back(pos.z() / kDistanceScale + centerCoords[2]);
+  }
+
+  return positions;
+}
+
+std::vector<int> collectAtomicNumbers(const std::vector<Atom*>& spheres) {
+  std::vector<int> numbers;
+  numbers.reserve(spheres.size());
+
+  for (const Atom* sphere : spheres) {
+    numbers.push_back(sphere->getAtomicNumber());
+  }
+
+  return numbers;
+}
+
+void parseCalculatorSpec(const std::string& spec,
+                         std::string& moduleName,
+                         std::string& className,
+                         std::string& kwargsText) {
+  if (spec.empty()) {
+    moduleName = "ase.calculators.lj";
+    className = "LennardJones";
+    kwargsText.clear();
+    return;
+  }
+
+  size_t firstColon = spec.find(':');
+  if (firstColon == std::string::npos) {
+    moduleName = spec;
+    className = "LennardJones";
+    kwargsText.clear();
+    return;
+  }
+
+  moduleName = spec.substr(0, firstColon);
+  size_t secondColon = spec.find(':', firstColon + 1);
+  if (secondColon == std::string::npos) {
+    className = spec.substr(firstColon + 1);
+    kwargsText.clear();
+    return;
+  }
+
+  className = spec.substr(firstColon + 1, secondColon - firstColon - 1);
+  kwargsText = spec.substr(secondColon + 1);
+}
+
+PyObject* importModule(const char* moduleName) {
+  PyObject* module = PyImport_ImportModule(moduleName);
+  if (module == nullptr) {
+    failWithPythonError("Failed to import a required Python module.");
+  }
+  return module;
+}
+
+PyObject* getCallable(PyObject* module, const char* attributeName) {
+  PyObject* callable = PyObject_GetAttrString(module, attributeName);
+  if (callable == nullptr || !PyCallable_Check(callable)) {
+    Py_XDECREF(callable);
+    Py_DECREF(module);
+    failWithPythonError("Failed to resolve a required Python callable.");
+  }
+  return callable;
+}
+
+PyObject* buildNumbersList(const std::vector<int>& atomicNumbers) {
+  PyObject* numbers = PyList_New(atomicNumbers.size());
+  if (numbers == nullptr) {
+    failWithPythonError("Failed to allocate Python list for atomic numbers.");
+  }
+
+  for (Py_ssize_t index = 0; index < static_cast<Py_ssize_t>(atomicNumbers.size()); ++index) {
+    PyObject* value = PyLong_FromLong(atomicNumbers[index]);
+    if (value == nullptr) {
+      Py_DECREF(numbers);
+      failWithPythonError("Failed to convert atomic number for Python.");
+    }
+    PyList_SetItem(numbers, index, value);
+  }
+
+  return numbers;
+}
+
+PyObject* buildPositionsList(const std::vector<double>& positions) {
+  PyObject* rows = PyList_New(positions.size() / 3);
+  if (rows == nullptr) {
+    failWithPythonError("Failed to allocate Python list for positions.");
+  }
+
+  for (Py_ssize_t atomIndex = 0; atomIndex < static_cast<Py_ssize_t>(positions.size() / 3);
+       ++atomIndex) {
+    PyObject* row = PyList_New(3);
+    if (row == nullptr) {
+      Py_DECREF(rows);
+      failWithPythonError("Failed to allocate Python position row.");
+    }
+
+    for (Py_ssize_t coordIndex = 0; coordIndex < 3; ++coordIndex) {
+      PyObject* value =
+          PyFloat_FromDouble(positions[static_cast<size_t>(atomIndex * 3 + coordIndex)]);
+      if (value == nullptr) {
+        Py_DECREF(row);
+        Py_DECREF(rows);
+        failWithPythonError("Failed to convert position value for Python.");
+      }
+      PyList_SetItem(row, coordIndex, value);
+    }
+
+    PyList_SetItem(rows, atomIndex, row);
+  }
+
+  return rows;
+}
+
+PyObject* buildCellList() {
+  PyObject* cell = PyList_New(3);
+  if (cell == nullptr) {
+    failWithPythonError("Failed to allocate Python list for cell.");
+  }
+
+  for (Py_ssize_t index = 0; index < 3; ++index) {
+    PyObject* value = PyFloat_FromDouble(kDefaultCellLength);
+    if (value == nullptr) {
+      Py_DECREF(cell);
+      failWithPythonError("Failed to convert cell value for Python.");
+    }
+    PyList_SetItem(cell, index, value);
+  }
+
+  return cell;
+}
+
+PyObject* buildPbcList() {
+  PyObject* pbc = PyList_New(3);
+  if (pbc == nullptr) {
+    failWithPythonError("Failed to allocate Python list for PBC.");
+  }
+
+  for (Py_ssize_t index = 0; index < 3; ++index) {
+    PyObject* value = PyBool_FromLong(0);
+    if (value == nullptr) {
+      Py_DECREF(pbc);
+      failWithPythonError("Failed to convert PBC value for Python.");
+    }
+    PyList_SetItem(pbc, index, value);
+  }
+
+  return pbc;
+}
+
+PyObject* buildKwargsDict(const std::string& kwargsText) {
+  if (kwargsText.empty()) {
+    return PyDict_New();
+  }
+
+  PyObject* astModule = importModule("ast");
+  PyObject* literalEval = getCallable(astModule, "literal_eval");
+  PyObject* kwargsString = PyUnicode_FromString(kwargsText.c_str());
+  if (kwargsString == nullptr) {
+    Py_DECREF(literalEval);
+    Py_DECREF(astModule);
+    failWithPythonError("Failed to convert ASE calculator kwargs for Python.");
+  }
+
+  PyObject* parsedKwargs = PyObject_CallFunctionObjArgs(literalEval, kwargsString, nullptr);
+  Py_DECREF(kwargsString);
+  Py_DECREF(literalEval);
+  Py_DECREF(astModule);
+  if (parsedKwargs == nullptr) {
+    failWithPythonError("Failed to parse ASE calculator kwargs.");
+  }
+  if (!PyDict_Check(parsedKwargs)) {
+    Py_DECREF(parsedKwargs);
+    std::cerr << "ASE calculator kwargs must evaluate to a dict." << std::endl;
+    std::exit(1);
+  }
+
+  return parsedKwargs;
+}
+
+std::vector<std::vector<double>> runAseCalculation(const std::vector<Atom*>& spheres,
+                                                   const std::string& moduleName,
+                                                   const std::string& className,
+                                                   const std::string& kwargsText) {
+  if (!Py_IsInitialized()) {
+    Py_Initialize();
+  }
+
+  PyGILState_STATE gilState = PyGILState_Ensure();
+
+  std::vector<int> atomicNumbers = collectAtomicNumbers(spheres);
+  std::vector<double> positions = flattenPositions(spheres);
+
+  PyObject* aseModule = importModule("ase");
+  PyObject* atomsClass = getCallable(aseModule, "Atoms");
+
+  PyObject* calcModule = importModule(moduleName.c_str());
+  PyObject* calcClass = getCallable(calcModule, className.c_str());
+  PyObject* calcArgs = PyTuple_New(0);
+  PyObject* calcKwargs = buildKwargsDict(kwargsText);
+  PyObject* calcObject = PyObject_Call(calcClass, calcArgs, calcKwargs);
+  Py_DECREF(calcKwargs);
+  Py_DECREF(calcArgs);
+  Py_DECREF(calcClass);
+  Py_DECREF(calcModule);
+  if (calcObject == nullptr) {
+    Py_DECREF(atomsClass);
+    Py_DECREF(aseModule);
+    failWithPythonError("Failed to construct the ASE calculator.");
+  }
+
+  PyObject* atomsArgs = PyTuple_New(0);
+  PyObject* atomsKwargs = PyDict_New();
+  if (atomsArgs == nullptr || atomsKwargs == nullptr) {
+    Py_XDECREF(atomsArgs);
+    Py_XDECREF(atomsKwargs);
+    Py_DECREF(calcObject);
+    Py_DECREF(atomsClass);
+    Py_DECREF(aseModule);
+    failWithPythonError("Failed to allocate ASE Atoms constructor arguments.");
+  }
+
+  PyObject* numbersObject = buildNumbersList(atomicNumbers);
+  PyObject* positionsObject = buildPositionsList(positions);
+  PyObject* cellObject = buildCellList();
+  PyObject* pbcObject = buildPbcList();
+  PyDict_SetItemString(atomsKwargs, "numbers", numbersObject);
+  PyDict_SetItemString(atomsKwargs, "positions", positionsObject);
+  PyDict_SetItemString(atomsKwargs, "cell", cellObject);
+  PyDict_SetItemString(atomsKwargs, "pbc", pbcObject);
+  Py_DECREF(numbersObject);
+  Py_DECREF(positionsObject);
+  Py_DECREF(cellObject);
+  Py_DECREF(pbcObject);
+
+  PyObject* atomsObject = PyObject_Call(atomsClass, atomsArgs, atomsKwargs);
+  Py_DECREF(atomsKwargs);
+  Py_DECREF(atomsArgs);
+  Py_DECREF(atomsClass);
+  Py_DECREF(aseModule);
+  if (atomsObject == nullptr) {
+    Py_DECREF(calcObject);
+    failWithPythonError("Failed to construct ASE Atoms.");
+  }
+
+  if (PyObject_SetAttrString(atomsObject, "calc", calcObject) != 0) {
+    Py_DECREF(calcObject);
+    Py_DECREF(atomsObject);
+    failWithPythonError("Failed to attach the ASE calculator to Atoms.");
+  }
+  Py_DECREF(calcObject);
+
+  PyObject* forcesObject = PyObject_CallMethod(atomsObject, "get_forces", nullptr);
+  if (forcesObject == nullptr) {
+    Py_DECREF(atomsObject);
+    failWithPythonError("Failed to evaluate ASE forces.");
+  }
+
+  PyObject* energyObject = PyObject_CallMethod(atomsObject, "get_potential_energy", nullptr);
+  Py_DECREF(atomsObject);
+  if (energyObject == nullptr) {
+    Py_DECREF(forcesObject);
+    failWithPythonError("Failed to evaluate ASE potential energy.");
+  }
+
+  PyObject* forceRows =
+      PySequence_Fast(forcesObject, "ASE get_forces() result must be a sequence.");
+  Py_DECREF(forcesObject);
+  if (forceRows == nullptr) {
+    Py_DECREF(energyObject);
+    failWithPythonError("Failed to inspect ASE force rows.");
+  }
+
+  std::vector<std::vector<double>> returnVector;
+  returnVector.reserve(spheres.size() + 1);
+  PyObject** rowItems = PySequence_Fast_ITEMS(forceRows);
+  for (Py_ssize_t atomIndex = 0; atomIndex < PySequence_Fast_GET_SIZE(forceRows); ++atomIndex) {
+    PyObject* rowSequence =
+        PySequence_Fast(rowItems[atomIndex], "Each ASE force row must be a sequence.");
+    if (rowSequence == nullptr) {
+      Py_DECREF(forceRows);
+      Py_DECREF(energyObject);
+      failWithPythonError("Failed to inspect ASE force components.");
+    }
+
+    PyObject** coordItems = PySequence_Fast_ITEMS(rowSequence);
+    std::vector<double> pushBack = {PyFloat_AsDouble(coordItems[0]),
+                                    PyFloat_AsDouble(coordItems[1]),
+                                    PyFloat_AsDouble(coordItems[2])};
+    returnVector.push_back(pushBack);
+    Py_DECREF(rowSequence);
+  }
+  Py_DECREF(forceRows);
+
+  returnVector.push_back({PyFloat_AsDouble(energyObject)});
+  Py_DECREF(energyObject);
+  PyGILState_Release(gilState);
+
+  return returnVector;
+}
+
+}  // namespace
 
 ///////////////////////////// MORSE ///////////////////////////////////////
 // Force and Potential energy calculation function for the Morse calculator
@@ -54,7 +385,8 @@ double morseCalculator::getMorseEnergy(double distance) {
 
 // Pairwise force calculation for morseCalculator
 double morseCalculator::getMorseForce(double distance) {
-  double temp = -2 * rho0 * epsilon * exp(rho0 - (2 * rho0 * distance) / r0) * (exp((rho0 * distance)/r0) - exp(rho0));
+  double temp = -2 * rho0 * epsilon * exp(rho0 - (2 * rho0 * distance) / r0) *
+                (exp((rho0 * distance) / r0) - exp(rho0));
   return temp / r0 * forceDamping;
 }
 
@@ -90,8 +422,8 @@ vector<vector<double>> ljCalculator::getFandU(vector<Atom*>& spheres) {
         force.add(appliedForce * dir01);
       }
     }
-  vector<double> pushBack = {force.x(), force.y(), force.z()};
-  returnVector.push_back(pushBack);
+    vector<double> pushBack = {force.x(), force.y(), force.z()};
+    returnVector.push_back(pushBack);
   }
   // Potential energy -- halve it because pairwise
   vector<double> potentE = {potentialEnergy / 2};
@@ -111,127 +443,13 @@ double ljCalculator::getLennardJonesForce(double distance) {
          ((-12 * pow(sigma / distance, 13)) - (-6 * pow(sigma / distance, 7)));
 }
 
-//////////////////////////////// pyamff ////////////////////////////////////
-// Force and Potential energy calculation function for the pyamff calculator
-vector<vector<double>> pyamffCalculator::getFandU(std::vector<Atom*>& spheres) {
-
-  double pyamffF[pyamffN * 3];
-  double pyamffU;
-  double* pyamffUPtr = &pyamffU;
-  // Prepare positions so they may be passed
-  double atomArray [spheres.size() * 3];
-  for (int i = 0; i < spheres.size() * 3; i+=3){
-    cVector3d pos = spheres[i/3]->getLocalPos();
-    atomArray[i] = pos.x()/.02 + 50;
-    atomArray[i+1] = pos.y()/.02 + 50;
-    atomArray[i+2] = pos.z()/.02 + 50;
-  }
-
-  // Make a copy of the vector
-  int unique[num_elements];
-  copy(unique_atomicNrs.begin(), unique_atomicNrs.end(), unique);
-  calc_eon(&pyamffN, atomArray, box, atomicNumbers, pyamffF, pyamffUPtr, &num_elements, unique);
-
-  // Convert to array for return
-  vector<vector<double>> returnVector = {};
-  for (int i = 0; i < spheres.size() * 3; i+=3) {
-    vector<double> pushBack = {*(pyamffF + i), *(pyamffF + i + 1), *(pyamffF + i + 2)};
-    returnVector.push_back(pushBack);
-  }
-
-  returnVector.push_back({*pyamffUPtr});
-  return returnVector;
-}
-
 ////////////////////////////////// ase //////////////////////////////////////
-// ase calculator constructor
-aseCalculator::aseCalculator(std::string& cName, int* atomicNrs, const double* b){
-  calculatorString = cName;
+aseCalculator::aseCalculator(std::string& cName, int* atomicNrs, const double* b) {
   atomicNumbers = atomicNrs;
   box = b;
-
-  // Start python instance and add current directory to path
-  Py_Initialize();
-  PyRun_SimpleString("import sys\n"
-                    "import ase.calculators.lj\n"  // racking my brain. calculator.py has trouble finding this module on some systems
-                    "sys.path.append('../../haptic-device/')");
+  parseCalculatorSpec(cName, calculatorModule, calculatorClass, calculatorKwargs);
 }
 
-// Force and Potential energy calculation function for the ase calculator
-std::vector<std::vector<double>> aseCalculator::getFandU(std::vector<Atom*>& spheres){
-  // Prepare positions so they may be passed to python
-  double atomArray [spheres.size() * 3];
-  for (int i = 0; i < spheres.size() * 3; i+=3){
-    cVector3d pos = spheres[i/3]->getLocalPos();
-    atomArray[i] = pos.x()/.02 + 50.0;
-    atomArray[i+1] = pos.y()/.02 + 50.0;
-    atomArray[i+2] = pos.z()/.02 + 50.0;
-  }
-
-  PyObject *pName, *pModule, *pFunc;
-  PyObject *pValue, *pTuple, *pResult, *pFinal;
-
-  pName = PyUnicode_FromString("calculator");
-
-  pModule = PyImport_Import(pName);
-  if (pModule == nullptr) {
-    PyErr_Print();
-    std::exit(1);
-  }
-
-  Py_DECREF(pName);
-
-  if (pModule != NULL) {
-    pFunc = PyObject_GetAttrString(pModule, "getValues");
-    /* pFunc is a new reference */
-    if (pFunc && PyCallable_Check(pFunc)) {
-      pResult = PyTuple_New(spheres.size() * 3);
-      for (int i = 0; i < spheres.size() * 3; ++i) {
-        pValue = PyFloat_FromDouble(atomArray[i]);
-        if (!pValue) {
-          Py_DECREF(pResult);
-          Py_DECREF(pModule);
-          fprintf(stderr, "Cannot convert argument\n");
-                //return 1;
-        }
-            // pValue reference stolen here:
-        PyTuple_SetItem(pResult, i, pValue);
-      }
-      //Create tuple to put pArgs inside of -- Becaue we need to pass one object to python
-
-      pTuple = PyTuple_New(1);
-      PyTuple_SetItem(pTuple, 0, pResult);
-      //pFinal = PyTuple_New(spheres.size() * 3);
-      pFinal = PyObject_CallObject(pFunc, pTuple);
-      if (pTuple != NULL){
-        Py_DECREF(pTuple);
-      }
-      if (pFinal != NULL) {
-        vector<vector<double>> forceArr;
-        for (int j = 0; j < spheres.size()*3; j+=3){
-          vector<double> temp;
-          temp.push_back(PyFloat_AsDouble(PyList_GetItem(pFinal,j)));
-          temp.push_back(PyFloat_AsDouble(PyList_GetItem(pFinal,j + 1)));
-          temp.push_back(PyFloat_AsDouble(PyList_GetItem(pFinal,j + 2)));
-          forceArr.push_back(temp);
-        }
-        // For the Potential Energy
-        vector<double> temp;
-        temp.push_back(PyFloat_AsDouble(PyList_GetItem(pFinal, spheres.size() * 3)));
-        forceArr.push_back(temp);
-
-        return forceArr;
-        Py_DECREF(pValue);
-        Py_DECREF(pResult);
-        Py_DECREF(pFinal);
-      }
-      else {
-        Py_DECREF(pFunc);
-        Py_DECREF(pModule);
-        PyErr_Print();
-        fprintf(stderr,"Call failed\n");
-        //return 1;
-      }
-    }
-  }
+std::vector<std::vector<double>> aseCalculator::getFandU(std::vector<Atom*>& spheres) {
+  return runAseCalculation(spheres, calculatorModule, calculatorClass, calculatorKwargs);
 }
