@@ -43,15 +43,17 @@
 #include "boundaryConditions.h"
 //------------------------------------------------------------------------------
 #include <GLFW/glfw3.h>
-#include <Python.h>
 #include <math.h>
 #include <unistd.h>
+#include <array>
 #include <chrono>
 #include <ctime>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <atomic>
+#include <vector>
 //------------------------------------------------------------------------------
 using namespace chai3d;
 using namespace std;
@@ -243,7 +245,7 @@ cVector3d selectedAtomOffset;
 cVector3d selectedPoint;
 
 // determine if atoms should be frozen
-bool freezeAtoms = false;
+std::atomic<bool> freezeAtoms(false);
 
 // save coordinates of central atom
 double centerCoords[3] = {50.0, 50.0, 50.0};
@@ -267,10 +269,13 @@ vector<cLabel *> hotkeyKeys;
 vector<cLabel *> hotkeyFunctions;
 
 // keep track of how long screenshot label has been displayed
-int screenshotCounter = -2;
+std::atomic<int> screenshotCounter(-2);
 
 // keep track of how long write to con label has been displayed
-int writeConCounter = -2;
+std::atomic<int> writeConCounter(-2);
+
+std::atomic<double> displayedPotentialEnergy(0.0);
+std::atomic<int> displayedAnchoredCount(0);
 
 // screenshot notification label
 cLabel *screenshotLabel;
@@ -303,10 +308,56 @@ void updateCameraLabel(cLabel *&camera_pos, cCamera *&camera);
 void writeToCon(string fileName);
 
 //------------------------------------------------------------------------------
-// DECLARED MACROS
+// RESOURCE HELPERS
 //------------------------------------------------------------------------------
-// Convert to resource path
-#define RESOURCE_PATH(p) (char *)((resourceRoot + string(p)).c_str())
+static string getExecutableDir() {
+  char buffer[4096];
+  ssize_t length = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+  if (length <= 0) {
+    return "";
+  }
+
+  buffer[length] = '\0';
+  string executablePath(buffer);
+  size_t separator = executablePath.find_last_of('/');
+  if (separator == string::npos) {
+    return "";
+  }
+
+  return executablePath.substr(0, separator);
+}
+
+static vector<string> getResourceSearchRoots() {
+  vector<string> roots;
+
+  if (!resourceRoot.empty()) {
+    roots.push_back(resourceRoot);
+  }
+
+  string executableDir = getExecutableDir();
+  if (!executableDir.empty()) {
+    roots.push_back(executableDir + "/");
+    roots.push_back(executableDir + "/../");
+  }
+
+  roots.push_back("./");
+  roots.push_back("../");
+  roots.push_back("../bin/");
+
+  return roots;
+}
+
+template <typename Loader>
+static bool loadChaiResource(Loader loader, const string& relativePath) {
+  for (const string& root : getResourceSearchRoots()) {
+    const string candidate = root + relativePath;
+    if (loader(candidate.c_str())) {
+      return true;
+    }
+  }
+
+  return false;
+}
 //==============================================================================
 /*
  LJ.cpp
@@ -493,13 +544,9 @@ int main(int argc, char *argv[]) {
   // create texture
   cTexture2dPtr texture = cTexture2d::create();
   // load texture file
-  bool fileload = texture->loadFromFile(
-      RESOURCE_PATH("../resources/images/spheremap-3.jpg"));
-  if (!fileload) {
-#if defined(_MSVC)
-    fileload = texture->loadFromFile("../resources/images/spheremap-3.jpg");
-#endif
-  }
+  bool fileload = loadChaiResource(
+      [&](const char* path) { return texture->loadFromFile(path); },
+      "resources/images/spheremap-3.jpg");
   if (!fileload) {
     cout << "Error - Texture image failed to load correctly." << endl;
     close();
@@ -507,6 +554,8 @@ int main(int argc, char *argv[]) {
   }
 
   // Declare variables needed for calculator constructor (cell, pbc), atoms object (mass, atomic number), and placing of initial atoms (positions)
+  std::array<double, 9> aseCell = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  std::array<int, 3> asePbc = {0, 0, 0};
 
   // either no arguments were given or argument was an integer
   if (argc == 1 || isNumber(argv[1])) {
@@ -574,63 +623,12 @@ int main(int argc, char *argv[]) {
       }
     }
   } else {  // read in specified file
-
-    // Begin python instance and set path
-    Py_Initialize();
-    PyRun_SimpleString("import sys\nsys.path.append('../../haptic-device/')\n");
-
-    // Create variables for the function and module name, return tuple object, and
-    PyObject *pName, *pModule, *pFunc, *pFileName, *pCallTuple;
-    PyObject *pResult;
-    std::vector<std::vector<float>> positions;
-    std::vector<int> startingAtomicNrs;
-    int nAtoms;
-
-    // Import python module
-    pName = PyUnicode_FromString("ase_file_io");
-    pModule = PyImport_Import(pName);
-
-    // return an error if PyImport_Import can't find the pModule
-    if (pModule != NULL) {
-      // get function
-      pFunc = PyObject_GetAttrString(pModule, "get_state_information");
-
-      if (pFunc && PyCallable_Check(pFunc)) {
-        // Send filename to function. pResult is a python tuple that will be unpacked to get out values that we want
-        pFileName = PyUnicode_FromString(argv[1]);
-        pCallTuple = PyTuple_New(1); // this is because CallObject requires that you pass in a tuple containing the data you want
-        PyTuple_SetItem(pCallTuple, 0, pFileName);
-        pResult = PyObject_CallObject(pFunc, pCallTuple);
-
-        // get number of atoms
-        nAtoms = (int)PyLong_AsLong(PyList_GetItem(pResult, 0));
-
-        // Unpack Positions and extract values
-        for (int i = 0; i < nAtoms; i++) {
-          // unpack positions
-          positions.push_back(std::vector<float>({
-            PyFloat_AsDouble(PyList_GetItem(pResult, 3 * i + 1)),
-            PyFloat_AsDouble(PyList_GetItem(pResult, 3 * i + 2)),
-            PyFloat_AsDouble(PyList_GetItem(pResult, 3 * i + 3))
-          }));
-          // unpack atomic numbers
-          startingAtomicNrs.push_back((int)PyLong_AsLong(PyList_GetItem(pResult, 3*nAtoms + 1 + i)));
-        }
-
-        // decref everything (this breaks our python instance. Will try to implement correctly later)
-        //Py_DECREF(pName);
-        //Py_DECREF(pModule);
-        //Py_DECREF(pResult);
-        //Py_DECREF(pFunc);
-        //Py_DECREF(pFileName);
-        //Py_DECREF(pCallTuple);
-
-        // end python instance (doing this caused a segfault)
-        //Py_FinalizeEx();
-      }
-    } else {
-      std::cout << "Error: module not found" << std::endl;
-    }
+    AseStructureData structure = loadAseStructure(argv[1]);
+    const std::vector<std::array<double, 3>>& positions = structure.positions;
+    const std::vector<int>& startingAtomicNrs = structure.atomicNumbers;
+    aseCell = structure.cell;
+    asePbc = structure.pbc;
+    const int nAtoms = static_cast<int>(positions.size());
 
     // create atoms objects, put them in spheres, world
     for (int i = 0; i < nAtoms; i++) {
@@ -657,7 +655,7 @@ int main(int argc, char *argv[]) {
         newAtom->setCurrent(true);
         // get coordinates from pPositionTriplet
         for (int j = 0; j < 3; j++) {
-          centerCoords[j] = positions[0][j];
+          centerCoords[j] = positions[0][static_cast<size_t>(j)];
         }
         // set first atom at center of view
         newAtom->setLocalPos(0.0, 0.0, 0.0);
@@ -689,13 +687,9 @@ int main(int argc, char *argv[]) {
       energySurface = MORSE;
       calculatorPtr = new morseCalculator();
     }else if (arg == "ase" || arg == "a"){
-
-      // These are placeholders for the moment
       energySurface = ASE;
-      int atomicNums[1] = {1};
-      const double box[1] = {1.0};
-      std::string stry = "";
-      calculatorPtr = new aseCalculator(stry, atomicNums, box);
+      const std::string calculatorSpec = (argc > 3) ? argv[3] : "";
+      calculatorPtr = new aseCalculator(calculatorSpec, aseCell, asePbc);
     }
     else if (arg == "lennard-jones" || arg == "lj") {
       calculatorPtr = new ljCalculator();
@@ -732,8 +726,15 @@ int main(int argc, char *argv[]) {
   addLabel(scope_upper);
   addLabel(scope_lower);
 
-  addLabel(writeConLabel);
-  addLabel(screenshotLabel);
+  cFontPtr notificationFont = NEW_CFONT_CALIBRI_20();
+  writeConLabel = new cLabel(notificationFont);
+  writeConLabel->m_fontColor.setBlack();
+  screenshotLabel = new cLabel(notificationFont);
+  screenshotLabel->m_fontColor.setBlack();
+  camera->m_frontLayer->addChild(writeConLabel);
+  camera->m_frontLayer->addChild(screenshotLabel);
+  writeConLabel->setShowEnabled(false);
+  screenshotLabel->setShowEnabled(false);
 
   // create a background
   background = new cBackground();
@@ -743,13 +744,9 @@ int main(int argc, char *argv[]) {
   background->setFixedAspectRatio(true);
 
   // load background image
-  fileload = background->loadFromFile(
-      RESOURCE_PATH("../resources/images/background.png"));
-  if (!fileload) {
-#if defined(_MSVC)
-    fileload = background->loadFromFile("../resources/images/background.png");
-#endif
-  }
+  fileload = loadChaiResource(
+      [&](const char* path) { return background->loadFromFile(path); },
+      "resources/images/background.png");
   if (!fileload) {
     cout << "Error - Image failed to load correctly." << endl;
     close();
@@ -799,11 +796,13 @@ int main(int argc, char *argv[]) {
   camera->m_frontLayer->addChild(helpPanel);
   helpPanel->setShowPanel(false);
 
-  cFontPtr headerFont = NEW_CFONTCALIBRI40();
+  cFontPtr headerFont = NEW_CFONT_CALIBRI_40();
   helpHeader = new cLabel(headerFont);
   helpHeader->m_fontColor.setBlack();
   helpHeader->setText("HOTKEYS AND INSTRUCTIONS");
   helpHeader->setShowPanel(false);
+  helpHeader->setShowEnabled(false);
+  camera->m_frontLayer->addChild(helpHeader);
 
   // create hotkey labels
   addHotkeyLabel("f", "toggle fullscreen");
@@ -829,8 +828,6 @@ int main(int argc, char *argv[]) {
   // create a thread which starts the main haptics rendering loop
   hapticsThread = new cThread();
   hapticsThread->start(updateHaptics, CTHREAD_PRIORITY_HAPTICS);
-  // setup callback when application exits
-  atexit(close);
 
   // sets the text for the camera position to appear on screen
   camera_pos->setLocalPos(0, 30, 0);
@@ -869,8 +866,11 @@ int main(int argc, char *argv[]) {
     // signal frequency counter
     freqCounterGraphics.signal(1);
   }
+  close();
+
   // close window
   glfwDestroyWindow(window);
+  window = NULL;
 
   // terminate GLFW library
   glfwTerminate();
@@ -889,6 +889,12 @@ void errorCallback(int a_error, const char *a_description) {
 }
 
 void close(void) {  // stop the simulation
+  static bool closed = false;
+  if (closed) {
+    return;
+  }
+  closed = true;
+
   simulationRunning = false;
   // wait for graphics and haptics loops to terminate
   while (!simulationFinished) {
@@ -896,8 +902,11 @@ void close(void) {  // stop the simulation
   }
   // delete resources
   delete hapticsThread;
+  hapticsThread = nullptr;
   delete world;
+  world = nullptr;
   delete handler;
+  handler = nullptr;
 }
 //-----------------------------------------------------------------------------
 void updateGraphics(void) {
@@ -910,6 +919,61 @@ void updateGraphics(void) {
 
   // update position of label
   labelRates->setLocalPos((int)(0.5 * (width - labelRates->getWidth())), 15);
+
+  updateCameraLabel(camera_pos, camera);
+
+  string trueFalse = freezeAtoms.load() ? "true" : "false";
+  isFrozen->setText("Freeze simulation: " + trueFalse);
+  isFrozen->setLocalPos((width - isFrozen->getWidth()) - 5, 15);
+
+  screenshotLabel->setLocalPos(5, height - 20);
+  if (screenshotCounter == 5000) {
+    screenshotLabel->setShowEnabled(true);
+    screenshotCounter--;
+  } else if (screenshotCounter > 0) {
+    screenshotCounter--;
+  } else if (screenshotCounter == 0) {
+    screenshotLabel->setShowEnabled(false);
+    screenshotCounter--;
+  }
+
+  writeConLabel->setLocalPos(5, height - 40);
+  if (writeConCounter == 5000) {
+    writeConLabel->setShowEnabled(true);
+    writeConCounter--;
+  } else if (writeConCounter > 0) {
+    writeConCounter--;
+  } else if (writeConCounter == 0) {
+    writeConLabel->setShowEnabled(false);
+    writeConCounter--;
+  }
+
+  helpPanel->setLocalPos(width - 550, height - 530);
+  helpHeader->setLocalPos(width - 490, height - 70);
+  for (int i = 0; i < hotkeyKeys.size(); i++) {
+    cLabel *tempKeyLabel = hotkeyKeys[i];
+    cLabel *tempFuncLabel = hotkeyFunctions[i];
+    tempKeyLabel->setLocalPos(width - 540, height - 130 - i * 25);
+    tempFuncLabel->setLocalPos(width - 350, height - 130 - i * 25);
+  }
+
+  const double potentialEnergy = displayedPotentialEnergy.load();
+  LJ_num->setText("Potential Energy: " + cStr(potentialEnergy, 5));
+  LJ_num->setLocalPos(0, 15, 0);
+
+  const int anchored = displayedAnchoredCount.load();
+  num_anchored->setText(to_string(anchored) + " anchored / " +
+                        to_string(spheres.size()) + " total");
+  num_anchored->setLocalPos((width - num_anchored->getWidth()) - 5, 0);
+
+  scope->setSignalValues(potentialEnergy, global_minimum);
+  if (!global_min_known && global_minimum < scope->getRangeMin()) {
+    auto new_lower = scope->getRangeMin() - 25;
+    auto new_upper = scope->getRangeMax() - 25;
+    scope->setRange(new_lower, new_upper);
+    scope_upper->setText(cStr(scope->getRangeMax()));
+    scope_lower->setText(cStr(scope->getRangeMin()));
+  }
 
   /////////////////////////////////////////////////////////////////////
   // RENDER SCENE
@@ -1013,24 +1077,20 @@ void updateHaptics(void) {
           case 1:
             camera->setSphericalPolarRad(0);
             camera->setSphericalAzimuthRad(0);
-            updateCameraLabel(camera_pos, camera);
             break;
           case 2:
             camera->setSphericalPolarRad(0);
             camera->setSphericalAzimuthRad(M_PI);
-            updateCameraLabel(camera_pos, camera);
             ;
             break;
           case 3:
             camera->setSphericalPolarRad(M_PI);
             camera->setSphericalAzimuthRad(M_PI);
-            updateCameraLabel(camera_pos, camera);
             break;
           case 4:
             curr_camera = 0;
             camera->setSphericalPolarRad(M_PI);
             camera->setSphericalAzimuthRad(0);
-            updateCameraLabel(camera_pos, camera);
             break;
         }
         curr_camera++;
@@ -1091,40 +1151,7 @@ void updateHaptics(void) {
       button1_changed = false;
     }
 
-    // update frozen state label
-    string trueFalse = freezeAtoms ? "true" : "false";
-    isFrozen->setText("Freeze simulation: " + trueFalse);
-    auto isFrozenWidth = (width - isFrozen->getWidth()) - 5;
-    isFrozen->setLocalPos(isFrozenWidth, 15);
-
-    screenshotLabel->setLocalPos(5, height - 20);
-    if (screenshotCounter == 5000) {
-      camera->m_frontLayer->addChild(screenshotLabel);
-      screenshotCounter--;
-    } else if (screenshotCounter > 0) {
-      screenshotCounter--;
-    } else if (screenshotCounter == 0) {
-      camera->m_frontLayer->removeChild(screenshotLabel);
-      screenshotCounter--;
-    } else if (screenshotCounter == -2) {
-      camera->m_frontLayer->removeChild(screenshotLabel);
-    }
-
-    writeConLabel->setLocalPos(5, height - 40);
-    if(writeConCounter == 5000){
-        camera->m_frontLayer->addChild(writeConLabel);
-        writeConCounter--;
-    }else if(writeConCounter > 0){
-        writeConCounter--;
-    }else if(writeConCounter == 0){
-        camera->m_frontLayer->removeChild(writeConLabel);
-        writeConCounter--;
-    }else if(writeConCounter == -2){
-        camera->m_frontLayer->removeChild(writeConLabel);
-    }
-
-
-    if (!freezeAtoms) {
+    if (!freezeAtoms.load()) {
       // compute forces for all spheres
       double potentialEnergy = 0;
 
@@ -1192,23 +1219,7 @@ void updateHaptics(void) {
       current = spheres[curr_atom];
       current->setLocalPos(position);
 
-      // rescale helpPanel
-      helpPanel->setLocalPos(width - 550, height - 530);
-      helpHeader->setLocalPos(width - 490, height - 70);
-
-      // rescale hotkey labels
-      for (int i = 0; i < hotkeyKeys.size(); i++) {
-        cLabel *tempKeyLabel = hotkeyKeys[i];
-        cLabel *tempFuncLabel = hotkeyFunctions[i];
-        tempKeyLabel->setLocalPos(width - 540, height - 130 - i * 25);
-        tempFuncLabel->setLocalPos(width - 350, height - 130 - i * 25);
-      }
-
-      // JD: moved this out of nested for loop so that test is set only when
-      // fully calculated update haptic and graphic rate data
-      LJ_num->setText("Potential Energy: " + cStr(potentialEnergy, 5));
-      // update position of label
-      LJ_num->setLocalPos(0, 15, 0);
+      displayedPotentialEnergy.store(potentialEnergy);
       // count the number of anchored atoms
       auto anchored{0};
       for (auto i{0}; i < spheres.size(); i++) {
@@ -1216,55 +1227,12 @@ void updateHaptics(void) {
           anchored++;
         }
       }
-      num_anchored->setText(to_string(anchored) + " anchored / " +
-                            to_string(spheres.size()) + " total");
-      auto num_anchored_width = (width - num_anchored->getWidth()) - 5;
-      num_anchored->setLocalPos(num_anchored_width, 0);
+      displayedAnchoredCount.store(anchored);
 
-      // Update scope
-      double currentTime = clock.getCurrentTimeSeconds();
-
-      // rounds current time to the nearest tenth
-      double currentTimeRounded = double(int(currentTime * 10 + .5)) / 10;
-
-      // The number fmod() is compared to is the threshold, this adjusts the
-      // timescale
-      if (fmod(currentTime, currentTimeRounded) <= .01) {
-        scope->setSignalValues(potentialEnergy, global_minimum);
-      }
       // scale the graph if the minimum isn't known
       if (!global_min_known) {
         if (potentialEnergy < global_minimum) {
           global_minimum = potentialEnergy;
-          num_anchored->setText(to_string(anchored) + " anchored / " +
-                                to_string(spheres.size()) + " total");
-          auto num_anchored_width = (width - num_anchored->getWidth()) - 5;
-          num_anchored->setLocalPos(num_anchored_width, 0);
-
-          // Update scope
-          double currentTime = clock.getCurrentTimeSeconds();
-
-          // rounds current time to the nearest tenth
-          double currentTimeRounded = double(int(currentTime * 10 + .5)) / 10;
-
-          // The number fmod() is compared to is the threshold, this adjusts the
-          // timescale
-          if (fmod(currentTime, currentTimeRounded) <= .01) {
-            scope->setSignalValues(potentialEnergy, global_minimum);
-          }
-          // scale the graph if the minimum isn't known
-          if (!global_min_known) {
-            if (potentialEnergy < global_minimum) {
-              global_minimum = potentialEnergy;
-            }
-            if (global_minimum < scope->getRangeMin()) {
-              auto new_lower = scope->getRangeMin() - 25;
-              auto new_upper = scope->getRangeMax() - 25;
-              scope->setRange(new_lower, new_upper);
-              scope_upper->setText(cStr(scope->getRangeMax()));
-              scope_lower->setText(cStr(scope->getRangeMin()));
-            }
-          }
         }
       }
     }

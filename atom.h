@@ -36,7 +36,7 @@ public:
     void updateVelVector();
     void setInitialPosition(double spawn_dist = .1);
     void setColor(cColorf color);
-    int getAtomicNumber();
+    int getAtomicNumber() const;
     void setAtomicNumber(int num);
     string getElement();
     double getMass();

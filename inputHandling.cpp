@@ -49,10 +49,10 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
   } else if (a_key == GLFW_KEY_S) {
     // option - save screenshot to file
     cImagePtr image = cImage::create();
-    camera->m_frontLayer->removeChild(scope);
+    scope->setShowEnabled(false);
     camera->renderView(width, height);
     camera->copyImageBuffer(image);
-    camera->m_frontLayer->addChild(scope);
+    scope->setShowEnabled(true);
     int index = 0;
     string filename_stem = "lj" + to_string(spheres.size()) + "_";
     while (fileExists(filename_stem + to_string(index) + ".png")) {
@@ -147,18 +147,10 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
       updateCameraLabel(camera_pos, camera);
   }else if(a_key == GLFW_KEY_LEFT_CONTROL || a_key == GLFW_KEY_RIGHT_CONTROL){
       helpPanel->setShowPanel(!helpPanel->getShowPanel());
-      if(helpPanel->getShowPanel()){
-        camera->m_frontLayer->addChild(helpHeader);
-        for(int i = 0; i < hotkeyKeys.size(); i++){
-          camera->m_frontLayer->addChild(hotkeyKeys[i]);
-          camera->m_frontLayer->addChild(hotkeyFunctions[i]);
-        }
-      }else{
-        camera->m_frontLayer->removeChild(helpHeader);
-        for(int i = 0; i < hotkeyKeys.size(); i++){
-          camera->m_frontLayer->removeChild(hotkeyKeys[i]);
-          camera->m_frontLayer->removeChild(hotkeyFunctions[i]);
-        }
+      helpHeader->setShowEnabled(helpPanel->getShowPanel());
+      for(int i = 0; i < hotkeyKeys.size(); i++){
+        hotkeyKeys[i]->setShowEnabled(helpPanel->getShowPanel());
+        hotkeyFunctions[i]->setShowEnabled(helpPanel->getShowPanel());
       }
   }
 }

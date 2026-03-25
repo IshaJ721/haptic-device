@@ -2,9 +2,11 @@
 
 #include <Python.h>
 
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -15,12 +17,17 @@ extern double centerCoords[3];
 namespace {
 
 constexpr double kDistanceScale = 0.02;
-constexpr double kDefaultCellLength = 100.0;
 
 [[noreturn]] void failWithPythonError(const char* message) {
   PyErr_Print();
   std::cerr << message << std::endl;
   std::exit(1);
+}
+
+void ensurePythonInitialized() {
+  if (!Py_IsInitialized()) {
+    Py_Initialize();
+  }
 }
 
 std::vector<double> flattenPositions(const std::vector<Atom*>& spheres) {
@@ -59,12 +66,33 @@ void parseCalculatorSpec(const std::string& spec,
     return;
   }
 
-  size_t firstColon = spec.find(':');
-  if (firstColon == std::string::npos) {
-    moduleName = spec;
+  if (spec == "lj" || spec == "lennard-jones") {
+    moduleName = "ase.calculators.lj";
     className = "LennardJones";
     kwargsText.clear();
     return;
+  }
+
+  if (spec == "morse") {
+    moduleName = "ase.calculators.morse";
+    className = "MorsePotential";
+    kwargsText.clear();
+    return;
+  }
+
+  if (spec == "emt") {
+    moduleName = "ase.calculators.emt";
+    className = "EMT";
+    kwargsText.clear();
+    return;
+  }
+
+  size_t firstColon = spec.find(':');
+  if (firstColon == std::string::npos) {
+    std::cerr << "ASE calculator spec must be empty, a known alias "
+                 "(`lj`, `morse`, `emt`), or `module:Class[:kwargs]`."
+              << std::endl;
+    std::exit(1);
   }
 
   moduleName = spec.substr(0, firstColon);
@@ -95,6 +123,22 @@ PyObject* getCallable(PyObject* module, const char* attributeName) {
     failWithPythonError("Failed to resolve a required Python callable.");
   }
   return callable;
+}
+
+PyObject* callMethodNoArgs(PyObject* object, const char* methodName, const char* errorMessage) {
+  PyObject* result = PyObject_CallMethod(object, methodName, nullptr);
+  if (result == nullptr) {
+    failWithPythonError(errorMessage);
+  }
+  return result;
+}
+
+PyObject* sequenceFast(PyObject* object, const char* errorMessage) {
+  PyObject* sequence = PySequence_Fast(object, errorMessage);
+  if (sequence == nullptr) {
+    failWithPythonError(errorMessage);
+  }
+  return sequence;
 }
 
 PyObject* buildNumbersList(const std::vector<int>& atomicNumbers) {
@@ -146,32 +190,44 @@ PyObject* buildPositionsList(const std::vector<double>& positions) {
   return rows;
 }
 
-PyObject* buildCellList() {
+PyObject* buildCellList(const std::array<double, 9>& cellMatrix) {
   PyObject* cell = PyList_New(3);
   if (cell == nullptr) {
     failWithPythonError("Failed to allocate Python list for cell.");
   }
 
-  for (Py_ssize_t index = 0; index < 3; ++index) {
-    PyObject* value = PyFloat_FromDouble(kDefaultCellLength);
-    if (value == nullptr) {
+  for (Py_ssize_t rowIndex = 0; rowIndex < 3; ++rowIndex) {
+    PyObject* row = PyList_New(3);
+    if (row == nullptr) {
       Py_DECREF(cell);
-      failWithPythonError("Failed to convert cell value for Python.");
+      failWithPythonError("Failed to allocate Python cell row.");
     }
-    PyList_SetItem(cell, index, value);
+
+    for (Py_ssize_t columnIndex = 0; columnIndex < 3; ++columnIndex) {
+      const size_t flatIndex = static_cast<size_t>(rowIndex * 3 + columnIndex);
+      PyObject* value = PyFloat_FromDouble(cellMatrix[flatIndex]);
+      if (value == nullptr) {
+        Py_DECREF(row);
+        Py_DECREF(cell);
+        failWithPythonError("Failed to convert cell value for Python.");
+      }
+      PyList_SetItem(row, columnIndex, value);
+    }
+
+    PyList_SetItem(cell, rowIndex, row);
   }
 
   return cell;
 }
 
-PyObject* buildPbcList() {
+PyObject* buildPbcList(const std::array<int, 3>& periodicBoundaryConditions) {
   PyObject* pbc = PyList_New(3);
   if (pbc == nullptr) {
     failWithPythonError("Failed to allocate Python list for PBC.");
   }
 
   for (Py_ssize_t index = 0; index < 3; ++index) {
-    PyObject* value = PyBool_FromLong(0);
+    PyObject* value = PyBool_FromLong(periodicBoundaryConditions[static_cast<size_t>(index)]);
     if (value == nullptr) {
       Py_DECREF(pbc);
       failWithPythonError("Failed to convert PBC value for Python.");
@@ -215,10 +271,10 @@ PyObject* buildKwargsDict(const std::string& kwargsText) {
 std::vector<std::vector<double>> runAseCalculation(const std::vector<Atom*>& spheres,
                                                    const std::string& moduleName,
                                                    const std::string& className,
-                                                   const std::string& kwargsText) {
-  if (!Py_IsInitialized()) {
-    Py_Initialize();
-  }
+                                                   const std::string& kwargsText,
+                                                   const std::array<double, 9>& cellMatrix,
+                                                   const std::array<int, 3>& periodicBoundaryConditions) {
+  ensurePythonInitialized();
 
   PyGILState_STATE gilState = PyGILState_Ensure();
 
@@ -256,8 +312,8 @@ std::vector<std::vector<double>> runAseCalculation(const std::vector<Atom*>& sph
 
   PyObject* numbersObject = buildNumbersList(atomicNumbers);
   PyObject* positionsObject = buildPositionsList(positions);
-  PyObject* cellObject = buildCellList();
-  PyObject* pbcObject = buildPbcList();
+  PyObject* cellObject = buildCellList(cellMatrix);
+  PyObject* pbcObject = buildPbcList(periodicBoundaryConditions);
   PyDict_SetItemString(atomsKwargs, "numbers", numbersObject);
   PyDict_SetItemString(atomsKwargs, "positions", positionsObject);
   PyDict_SetItemString(atomsKwargs, "cell", cellObject);
@@ -333,7 +389,159 @@ std::vector<std::vector<double>> runAseCalculation(const std::vector<Atom*>& sph
   return returnVector;
 }
 
+std::array<double, 9> extractCellMatrix(PyObject* cellObject) {
+  std::array<double, 9> cell = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  PyObject* rows = sequenceFast(cellObject, "ASE cell must be a 3x3 sequence.");
+  if (PySequence_Fast_GET_SIZE(rows) != 3) {
+    Py_DECREF(rows);
+    std::cerr << "ASE cell must contain exactly three cell vectors." << std::endl;
+    std::exit(1);
+  }
+
+  for (Py_ssize_t rowIndex = 0; rowIndex < 3; ++rowIndex) {
+    PyObject* row = sequenceFast(PySequence_Fast_GET_ITEM(rows, rowIndex),
+                                 "ASE cell row must be a sequence of length 3.");
+    if (PySequence_Fast_GET_SIZE(row) != 3) {
+      Py_DECREF(row);
+      Py_DECREF(rows);
+      std::cerr << "Each ASE cell vector must have exactly three coordinates." << std::endl;
+      std::exit(1);
+    }
+
+    for (Py_ssize_t columnIndex = 0; columnIndex < 3; ++columnIndex) {
+      cell[static_cast<size_t>(rowIndex * 3 + columnIndex)] =
+          PyFloat_AsDouble(PySequence_Fast_GET_ITEM(row, columnIndex));
+      if (PyErr_Occurred()) {
+        Py_DECREF(row);
+        Py_DECREF(rows);
+        failWithPythonError("Failed to convert ASE cell value to C++.");
+      }
+    }
+    Py_DECREF(row);
+  }
+
+  Py_DECREF(rows);
+  return cell;
+}
+
+std::array<int, 3> extractPbc(PyObject* pbcObject) {
+  std::array<int, 3> pbc = {0, 0, 0};
+  PyObject* items = sequenceFast(pbcObject, "ASE pbc must be a sequence of length 3.");
+  if (PySequence_Fast_GET_SIZE(items) != 3) {
+    Py_DECREF(items);
+    std::cerr << "ASE pbc must contain exactly three booleans." << std::endl;
+    std::exit(1);
+  }
+
+  for (Py_ssize_t index = 0; index < 3; ++index) {
+    pbc[static_cast<size_t>(index)] = PyObject_IsTrue(PySequence_Fast_GET_ITEM(items, index));
+  }
+
+  Py_DECREF(items);
+  return pbc;
+}
+
+std::vector<int> extractAtomicNumbers(PyObject* numbersObject) {
+  std::vector<int> atomicNumbers;
+  PyObject* items = sequenceFast(numbersObject, "ASE atomic numbers must be a sequence.");
+  atomicNumbers.reserve(static_cast<size_t>(PySequence_Fast_GET_SIZE(items)));
+
+  for (Py_ssize_t index = 0; index < PySequence_Fast_GET_SIZE(items); ++index) {
+    atomicNumbers.push_back(static_cast<int>(PyLong_AsLong(PySequence_Fast_GET_ITEM(items, index))));
+    if (PyErr_Occurred()) {
+      Py_DECREF(items);
+      failWithPythonError("Failed to convert ASE atomic number to C++.");
+    }
+  }
+
+  Py_DECREF(items);
+  return atomicNumbers;
+}
+
+std::vector<std::array<double, 3>> extractPositions(PyObject* positionsObject) {
+  std::vector<std::array<double, 3>> positions;
+  PyObject* rows = sequenceFast(positionsObject, "ASE positions must be an Nx3 sequence.");
+  positions.reserve(static_cast<size_t>(PySequence_Fast_GET_SIZE(rows)));
+
+  for (Py_ssize_t rowIndex = 0; rowIndex < PySequence_Fast_GET_SIZE(rows); ++rowIndex) {
+    PyObject* row = sequenceFast(PySequence_Fast_GET_ITEM(rows, rowIndex),
+                                 "ASE position row must be a sequence of length 3.");
+    if (PySequence_Fast_GET_SIZE(row) != 3) {
+      Py_DECREF(row);
+      Py_DECREF(rows);
+      std::cerr << "Each ASE position row must have exactly three coordinates." << std::endl;
+      std::exit(1);
+    }
+
+    std::array<double, 3> position = {
+        PyFloat_AsDouble(PySequence_Fast_GET_ITEM(row, 0)),
+        PyFloat_AsDouble(PySequence_Fast_GET_ITEM(row, 1)),
+        PyFloat_AsDouble(PySequence_Fast_GET_ITEM(row, 2))};
+    if (PyErr_Occurred()) {
+      Py_DECREF(row);
+      Py_DECREF(rows);
+      failWithPythonError("Failed to convert ASE position to C++.");
+    }
+    positions.push_back(position);
+    Py_DECREF(row);
+  }
+
+  Py_DECREF(rows);
+  return positions;
+}
+
 }  // namespace
+
+AseStructureData loadAseStructure(const std::string& filename) {
+  ensurePythonInitialized();
+  PyGILState_STATE gilState = PyGILState_Ensure();
+
+  PyObject* ioModule = importModule("ase.io");
+  PyObject* readFunction = getCallable(ioModule, "read");
+  PyObject* filenameObject = PyUnicode_FromString(filename.c_str());
+  if (filenameObject == nullptr) {
+    Py_DECREF(readFunction);
+    Py_DECREF(ioModule);
+    failWithPythonError("Failed to convert input filename for ASE.");
+  }
+
+  PyObject* atomsObject = PyObject_CallFunctionObjArgs(readFunction, filenameObject, nullptr);
+  Py_DECREF(filenameObject);
+  Py_DECREF(readFunction);
+  Py_DECREF(ioModule);
+  if (atomsObject == nullptr) {
+    failWithPythonError("ASE failed to read the structure file.");
+  }
+
+  PyObject* positionsObject =
+      callMethodNoArgs(atomsObject, "get_positions", "ASE failed to extract positions from the file.");
+  PyObject* numbersObject = callMethodNoArgs(
+      atomsObject, "get_atomic_numbers", "ASE failed to extract atomic numbers from the file.");
+  PyObject* cellObject =
+      callMethodNoArgs(atomsObject, "get_cell", "ASE failed to extract the cell from the file.");
+  PyObject* pbcObject =
+      callMethodNoArgs(atomsObject, "get_pbc", "ASE failed to extract PBC from the file.");
+
+  AseStructureData structure;
+  structure.positions = extractPositions(positionsObject);
+  structure.atomicNumbers = extractAtomicNumbers(numbersObject);
+  structure.cell = extractCellMatrix(cellObject);
+  structure.pbc = extractPbc(pbcObject);
+
+  Py_DECREF(positionsObject);
+  Py_DECREF(numbersObject);
+  Py_DECREF(cellObject);
+  Py_DECREF(pbcObject);
+  Py_DECREF(atomsObject);
+
+  if (structure.positions.size() != structure.atomicNumbers.size()) {
+    PyGILState_Release(gilState);
+    throw std::runtime_error("ASE returned mismatched positions and atomic numbers.");
+  }
+
+  PyGILState_Release(gilState);
+  return structure;
+}
 
 ///////////////////////////// MORSE ///////////////////////////////////////
 // Force and Potential energy calculation function for the Morse calculator
@@ -444,12 +652,13 @@ double ljCalculator::getLennardJonesForce(double distance) {
 }
 
 ////////////////////////////////// ase //////////////////////////////////////
-aseCalculator::aseCalculator(std::string& cName, int* atomicNrs, const double* b) {
-  atomicNumbers = atomicNrs;
-  box = b;
+aseCalculator::aseCalculator(const std::string& cName,
+                             const std::array<double, 9>& cellMatrix,
+                             const std::array<int, 3>& periodicBoundaryConditions)
+    : cell(cellMatrix), pbc(periodicBoundaryConditions) {
   parseCalculatorSpec(cName, calculatorModule, calculatorClass, calculatorKwargs);
 }
 
 std::vector<std::vector<double>> aseCalculator::getFandU(std::vector<Atom*>& spheres) {
-  return runAseCalculation(spheres, calculatorModule, calculatorClass, calculatorKwargs);
+  return runAseCalculation(spheres, calculatorModule, calculatorClass, calculatorKwargs, cell, pbc);
 }

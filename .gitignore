@@ -37,3 +37,13 @@
 # python stuff
 __pycache__
 *.pyc
+
+# local build outputs
+build/
+asan-build/
+
+# generated CMake output
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json

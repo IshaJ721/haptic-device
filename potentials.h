@@ -1,17 +1,23 @@
 #ifndef POTENTIALS_H
 #define POTENTIALS_H
 
+#include <array>
 #include <string>
 #include <vector>
 
 #include "atom.h"
 
+struct AseStructureData {
+    std::vector<std::array<double, 3>> positions;
+    std::vector<int> atomicNumbers;
+    std::array<double, 9> cell = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    std::array<int, 3> pbc = {0, 0, 0};
+};
+
+AseStructureData loadAseStructure(const std::string& filename);
+
 ////// Base class for all calculators
 class Calculator {
-  protected:
-    int* atomicNumbers;
-    const double* box;
-
   public:
     virtual ~Calculator() = default;
     // Note: any other values used in this function should be private variables
@@ -61,8 +67,12 @@ class aseCalculator:public Calculator {
   std::string calculatorModule;
   std::string calculatorClass;
   std::string calculatorKwargs;
+  std::array<double, 9> cell;
+  std::array<int, 3> pbc;
   public:
-    aseCalculator(std::string& cName, int* atomicNrs, const double* b);
+    explicit aseCalculator(const std::string& cName,
+                           const std::array<double, 9>& cell,
+                           const std::array<int, 3>& pbc);
     std::vector<std::vector<double>> getFandU(std::vector<Atom*>& spheres);
 };
 
