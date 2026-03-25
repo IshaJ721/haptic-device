@@ -1,3 +1,0 @@
-/home/darre/chai3d-3.3.0/haptic-device/build/CMakeFiles/haptic-device.dir
-/home/darre/chai3d-3.3.0/haptic-device/build/CMakeFiles/edit_cache.dir
-/home/darre/chai3d-3.3.0/haptic-device/build/CMakeFiles/rebuild_cache.dir

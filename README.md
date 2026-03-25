@@ -22,6 +22,18 @@ Choose the potential energy surface by adding a second argument:
 ```
 The default is Lennard-Jones(lj). Other options are morse and ase.
 
+When using `ase`, you can optionally provide a third argument to choose a full
+ASE calculator spec:
+```
+./haptic-device structure.xyz ase
+./haptic-device structure.xyz ase lj
+./haptic-device structure.xyz ase morse
+./haptic-device structure.xyz ase ase.calculators.emt:EMT
+./haptic-device structure.xyz ase ase.calculators.lj:LennardJones:{'sigma': 2.5, 'epsilon': 0.8}
+```
+Supported ASE shortcuts are `lj`, `morse`, and `emt`. For any other ASE
+calculator, use `module:Class[:kwargs]`.
+
 ## Build Instructions
 
 ### Windows

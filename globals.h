@@ -1,5 +1,6 @@
 #include "chai3d.h"
 #include "atom.h"
+#include <atomic>
 #include <vector>
 #include <GLFW/glfw3.h>
 #include "potentials.h"
@@ -69,7 +70,7 @@ extern int swapInterval;
 
 extern cScope *scope;
 
-extern bool freezeAtoms;
+extern std::atomic<bool> freezeAtoms;
 
 extern cLabel *camera_pos;
 
@@ -77,6 +78,6 @@ extern cLabel *helpHeader;
 
 extern cPanel *helpPanel;
 
-extern int screenshotCounter;
+extern std::atomic<int> screenshotCounter;
 
-extern int writeConCounter;
+extern std::atomic<int> writeConCounter;

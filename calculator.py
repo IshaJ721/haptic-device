@@ -1,40 +1,46 @@
-import ase
-from ase.calculators.lj import LennardJones
+from importlib import import_module
+from ast import literal_eval
 
-def getValues(position):
+from ase import Atoms
 
-    # Create positions array
-    array = []
-    for i in range(len(position)//3):
-        line = [0, 0, 0]
-        line[0] = position[3*i]
-        line[1] = position[3*i+1]
-        line[2] = position[3*i+2]
-        array.append(line)
 
-    # troubleshooting
-    #print(array)
+def _resolve_calculator(spec):
+    if not spec or spec in {"lj", "lennard-jones"}:
+        module_name = "ase.calculators.lj"
+        class_name = "LennardJones"
+        kwargs = {}
+    elif spec == "morse":
+        module_name = "ase.calculators.morse"
+        class_name = "MorsePotential"
+        kwargs = {}
+    elif spec == "emt":
+        module_name = "ase.calculators.emt"
+        class_name = "EMT"
+        kwargs = {}
+    else:
+        parts = spec.split(":", 2)
+        if len(parts) < 2:
+            raise ValueError(
+                "Calculator spec must be empty, a known alias, or module:Class[:kwargs]"
+            )
+        module_name, class_name = parts[0], parts[1]
+        kwargs = literal_eval(parts[2]) if len(parts) == 3 else {}
+        if not isinstance(kwargs, dict):
+            raise ValueError("Calculator kwargs must evaluate to a dict")
 
-    # Set up calculator
-    calc = LennardJones()
-    # load atoms object
-    p = ase.Atoms('Pt' + str(len(position)//3), positions=array)
+    calculator_class = getattr(import_module(module_name), class_name)
+    return calculator_class(**kwargs)
 
-    # Set Calculator
-    p.set_calculator(calc)
 
-    # Forces are the first 3N values of the list array2, and the potential energy is the final value
-    forces = p.get_forces()
+def get_values(numbers, positions, cell=None, pbc=None, calculator_spec=""):
+    atoms = Atoms(numbers=numbers, positions=positions, cell=cell, pbc=pbc)
+    atoms.calc = _resolve_calculator(calculator_spec)
+    return {
+        "forces": atoms.get_forces().tolist(),
+        "energy": atoms.get_potential_energy(),
+    }
 
-    array2 = []
-    for i in range(len(position)//3):
-        for j in range(3):
-            array2.append(forces[i][j])
 
-    array2.append(p.get_potential_energy())
-    #array2.append(p.get_potential_energy())
-    return array2
-
-# This  comes in handy when something is broken w the C API and you need to troubleshoot
-if __name__ == '__main__':
-    print(getValues([1,1,1,2,2,2,3,3,3,4,4,4,5,5,5]))
+if __name__ == "__main__":
+    sample = get_values(numbers=[78, 78], positions=[[0, 0, 0], [2.8, 0, 0]])
+    print(sample)
