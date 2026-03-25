@@ -8,10 +8,10 @@
 #include <string>
 
 // a font for rendering text
-chai3d::cFontPtr font = chai3d::NEW_CFONTCALIBRI20();
+chai3d::cFontPtr font = chai3d::NEW_CFONT_CALIBRI_20();
 
 // font for help screen
-chai3d::cFontPtr helpFont = chai3d::NEW_CFONTCALIBRI32();
+chai3d::cFontPtr helpFont = chai3d::NEW_CFONT_CALIBRI_32();
 
 // check if file already exists in directory
 bool fileExists(const std::string &name) {

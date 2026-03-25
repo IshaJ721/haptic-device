@@ -799,7 +799,7 @@ int main(int argc, char *argv[]) {
   camera->m_frontLayer->addChild(helpPanel);
   helpPanel->setShowPanel(false);
 
-  cFontPtr headerFont = NEW_CFONTCALIBRI40();
+  cFontPtr headerFont = NEW_CFONT_CALIBRI_40();
   helpHeader = new cLabel(headerFont);
   helpHeader->m_fontColor.setBlack();
   helpHeader->setText("HOTKEYS AND INSTRUCTIONS");

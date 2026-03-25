@@ -395,7 +395,7 @@ void Atom::setInitialPosition(double spawn_dist) {
 
 void Atom::setColor(cColorf color) { m_material->setColor(color); }
 
-int Atom::getAtomicNumber() { return atomicNumber; }
+int Atom::getAtomicNumber() const { return atomicNumber; }
 
 void Atom::setAtomicNumber( int num ) { atomicNumber = num; }
 
