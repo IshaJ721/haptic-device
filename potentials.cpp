@@ -4,10 +4,15 @@
 
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
+#include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 #include "atom.h"
@@ -490,56 +495,131 @@ std::vector<std::array<double, 3>> extractPositions(PyObject* positionsObject) {
   return positions;
 }
 
+std::string getExecutableDir() {
+  char buffer[4096];
+  ssize_t length = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+  if (length <= 0) {
+    return "";
+  }
+
+  buffer[length] = '\0';
+  std::string executablePath(buffer);
+  size_t separator = executablePath.find_last_of('/');
+  if (separator == std::string::npos) {
+    return "";
+  }
+
+  return executablePath.substr(0, separator);
+}
+
+std::string quoteForShell(const std::string& value) {
+  std::string quoted = "'";
+  for (char ch : value) {
+    if (ch == '\'') {
+      quoted += "'\\''";
+    } else {
+      quoted += ch;
+    }
+  }
+  quoted += "'";
+  return quoted;
+}
+
+std::vector<std::string> getAseFileIoCandidates() {
+  std::vector<std::string> candidates;
+  const std::string executableDir = getExecutableDir();
+
+  if (!executableDir.empty()) {
+    candidates.push_back(executableDir + "/../../haptic-device/ase_file_io.py");
+    candidates.push_back(executableDir + "/../haptic-device/ase_file_io.py");
+  }
+
+  candidates.push_back("./haptic-device/ase_file_io.py");
+  candidates.push_back("./ase_file_io.py");
+  candidates.push_back("../haptic-device/ase_file_io.py");
+
+  return candidates;
+}
+
+std::string resolveAseFileIoScript() {
+  for (const std::string& candidate : getAseFileIoCandidates()) {
+    std::ifstream script(candidate);
+    if (script.good()) {
+      return candidate;
+    }
+  }
+
+  std::ostringstream message;
+  message << "Could not locate ase_file_io.py. Looked in:";
+  for (const std::string& candidate : getAseFileIoCandidates()) {
+    message << "\n  " << candidate;
+  }
+  throw std::runtime_error(message.str());
+}
+
 }  // namespace
 
 AseStructureData loadAseStructure(const std::string& filename) {
-  ensurePythonInitialized();
-  PyGILState_STATE gilState = PyGILState_Ensure();
-
-  PyObject* ioModule = importModule("ase.io");
-  PyObject* readFunction = getCallable(ioModule, "read");
-  PyObject* filenameObject = PyUnicode_FromString(filename.c_str());
-  if (filenameObject == nullptr) {
-    Py_DECREF(readFunction);
-    Py_DECREF(ioModule);
-    failWithPythonError("Failed to convert input filename for ASE.");
-  }
-
-  PyObject* atomsObject = PyObject_CallFunctionObjArgs(readFunction, filenameObject, nullptr);
-  Py_DECREF(filenameObject);
-  Py_DECREF(readFunction);
-  Py_DECREF(ioModule);
-  if (atomsObject == nullptr) {
-    failWithPythonError("ASE failed to read the structure file.");
-  }
-
-  PyObject* positionsObject =
-      callMethodNoArgs(atomsObject, "get_positions", "ASE failed to extract positions from the file.");
-  PyObject* numbersObject = callMethodNoArgs(
-      atomsObject, "get_atomic_numbers", "ASE failed to extract atomic numbers from the file.");
-  PyObject* cellObject =
-      callMethodNoArgs(atomsObject, "get_cell", "ASE failed to extract the cell from the file.");
-  PyObject* pbcObject =
-      callMethodNoArgs(atomsObject, "get_pbc", "ASE failed to extract PBC from the file.");
-
   AseStructureData structure;
-  structure.positions = extractPositions(positionsObject);
-  structure.atomicNumbers = extractAtomicNumbers(numbersObject);
-  structure.cell = extractCellMatrix(cellObject);
-  structure.pbc = extractPbc(pbcObject);
+  const std::string scriptPath = resolveAseFileIoScript();
+  const std::string command =
+      "python3 " + quoteForShell(scriptPath) + " " + quoteForShell(filename);
+  std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
+  if (!pipe) {
+    throw std::runtime_error("Failed to start ASE structure loader helper.");
+  }
 
-  Py_DECREF(positionsObject);
-  Py_DECREF(numbersObject);
-  Py_DECREF(cellObject);
-  Py_DECREF(pbcObject);
-  Py_DECREF(atomsObject);
+  std::ostringstream output;
+  char buffer[4096];
+  while (fgets(buffer, sizeof(buffer), pipe.get()) != nullptr) {
+    output << buffer;
+  }
+
+  const int status = pclose(pipe.release());
+  if (status != 0) {
+    throw std::runtime_error("ASE structure loader failed for \"" + filename + "\".");
+  }
+
+  std::istringstream stream(output.str());
+  int atomCount = 0;
+  if (!(stream >> atomCount) || atomCount < 0) {
+    throw std::runtime_error("ASE structure loader returned an invalid atom count.");
+  }
+
+  structure.positions.reserve(static_cast<size_t>(atomCount));
+  for (int atomIndex = 0; atomIndex < atomCount; ++atomIndex) {
+    std::array<double, 3> position = {0.0, 0.0, 0.0};
+    if (!(stream >> position[0] >> position[1] >> position[2])) {
+      throw std::runtime_error("ASE structure loader returned invalid positions.");
+    }
+    structure.positions.push_back(position);
+  }
+
+  structure.atomicNumbers.reserve(static_cast<size_t>(atomCount));
+  for (int atomIndex = 0; atomIndex < atomCount; ++atomIndex) {
+    int atomicNumber = 0;
+    if (!(stream >> atomicNumber)) {
+      throw std::runtime_error("ASE structure loader returned invalid atomic numbers.");
+    }
+    structure.atomicNumbers.push_back(atomicNumber);
+  }
+
+  for (size_t index = 0; index < structure.cell.size(); ++index) {
+    if (!(stream >> structure.cell[index])) {
+      throw std::runtime_error("ASE structure loader returned an invalid cell matrix.");
+    }
+  }
+
+  for (size_t index = 0; index < structure.pbc.size(); ++index) {
+    if (!(stream >> structure.pbc[index])) {
+      throw std::runtime_error("ASE structure loader returned invalid PBC flags.");
+    }
+  }
 
   if (structure.positions.size() != structure.atomicNumbers.size()) {
-    PyGILState_Release(gilState);
     throw std::runtime_error("ASE returned mismatched positions and atomic numbers.");
   }
 
-  PyGILState_Release(gilState);
   return structure;
 }
 
