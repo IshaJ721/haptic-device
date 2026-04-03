@@ -3,6 +3,7 @@
 #include <GLFW/glfw3.h>
 #include <sys/stat.h>
 #include <fstream>
+#include <mutex>
 
 int just_unanchored = 0;
 
@@ -15,6 +16,7 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
     // option - exit
     glfwSetWindowShouldClose(a_window, GLFW_TRUE);
   } else if (a_key == GLFW_KEY_F) {  // option - toggle fullscreen
+    std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     // toggle state variable
     fullscreen = !fullscreen;
 
@@ -38,6 +40,7 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
       glfwSwapInterval(swapInterval);
     }
   } else if (a_key == GLFW_KEY_U) {
+    std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     // action - unanchor all key
     for (auto i{0}; i < spheres.size(); i++) {
       if (spheres[i]->isAnchor()) {
@@ -47,6 +50,7 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
     assert(just_unanchored = 5);
     just_unanchored = 0;
   } else if (a_key == GLFW_KEY_S) {
+    std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     // option - save screenshot to file
     cImagePtr image = cImage::create();
     scope->setShowEnabled(false);
@@ -63,6 +67,7 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
   } else if (a_key == GLFW_KEY_SPACE) {  // freeze simulation
     freezeAtoms = !freezeAtoms;
   } else if (a_key == GLFW_KEY_C) {  // save atoms to con file
+    std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     ofstream writeFile;
     string dir1 = "./log/";
     struct stat buffer;
@@ -94,6 +99,7 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
     writeToCon(dir2 + "atoms" + to_string(index) + ".con");
     cout << "LOGGED AT " + date + " atoms" + to_string(index) + ".con" << endl;
   } else if (a_key == GLFW_KEY_A) {
+    std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     // anchor all atoms while maintaining control
     for (auto i{0}; i < spheres.size(); i++) {
       if (!spheres[i]->isAnchor() && !(spheres[i]->isCurrent())) {
@@ -101,6 +107,7 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
       }
     }
   } else if (a_key == GLFW_KEY_UP || a_key == GLFW_KEY_DOWN) {
+        std::lock_guard<std::recursive_mutex> lock(sceneMutex);
         int direction = (a_key == GLFW_KEY_UP) ? 1 : -1;
         camera->setSphericalPolarRad(camera->getSphericalPolarRad() +
                                      (M_PI / 50) * direction);
@@ -115,6 +122,7 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
         }
         updateCameraLabel(camera_pos, camera);
     } else if (a_key == GLFW_KEY_RIGHT || a_key == GLFW_KEY_LEFT) {
+        std::lock_guard<std::recursive_mutex> lock(sceneMutex);
         int direction = (a_key == GLFW_KEY_RIGHT) ? 1 : -1;
         camera->setSphericalAzimuthRad(camera->getSphericalAzimuthRad() +
                                        (M_PI / 50) * direction);
@@ -131,6 +139,7 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
 
   } else if (a_key == GLFW_KEY_LEFT_BRACKET ||
              a_key == GLFW_KEY_RIGHT_BRACKET) {
+    std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     int direction = (a_key == GLFW_KEY_RIGHT_BRACKET) ? 1 : -1;
     if ((direction == 1 && rho < 1) || (direction == -1 && rho > .15)) {
       camera->setSphericalRadius(camera->getSphericalRadius() +
@@ -139,13 +148,16 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
       updateCameraLabel(camera_pos, camera);
     }
   } else if (a_key == GLFW_KEY_R) {
+      std::lock_guard<std::recursive_mutex> lock(sceneMutex);
       // Reset the camera to its default pos
       camera->setSphericalPolarRad(0);
       camera->setSphericalAzimuthRad(0);
       camera->setSphericalRadius(.35);
       rho = .35;
       updateCameraLabel(camera_pos, camera);
-  }else if(a_key == GLFW_KEY_LEFT_CONTROL || a_key == GLFW_KEY_RIGHT_CONTROL){
+  }else if((a_key == GLFW_KEY_LEFT_CONTROL || a_key == GLFW_KEY_RIGHT_CONTROL) &&
+           a_action == GLFW_PRESS){
+      std::lock_guard<std::recursive_mutex> lock(sceneMutex);
       helpPanel->setShowPanel(!helpPanel->getShowPanel());
       helpHeader->setShowEnabled(helpPanel->getShowPanel());
       for(int i = 0; i < hotkeyKeys.size(); i++){
@@ -156,6 +168,7 @@ void keyCallback(GLFWwindow *a_window, int a_key, int a_scancode, int a_action,
 }
 
 void mouseMotionCallback(GLFWwindow *a_window, double a_posX, double a_posY) {
+    std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     if ((selectedAtom != NULL) && (mouseState == MOUSE_SELECTION) &&
         (selectedAtom->isAnchor())) {
         // get the vector that goes from the camera to the selected point (mouse
@@ -195,6 +208,7 @@ void mouseMotionCallback(GLFWwindow *a_window, double a_posX, double a_posY) {
 
 void mouseButtonCallback(GLFWwindow *a_window, int a_button, int a_action,
                          int a_mods) {
+    std::lock_guard<std::recursive_mutex> lock(sceneMutex);
     // store mouse position
     double x, y;
 

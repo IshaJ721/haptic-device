@@ -6,6 +6,7 @@
 #include "potentials.h"
 #include <unordered_map>
 #include <tuple>
+#include <mutex>
 
 //------------------------------------------------------------------------------
 // STATES
@@ -81,3 +82,5 @@ extern cPanel *helpPanel;
 extern std::atomic<int> screenshotCounter;
 
 extern std::atomic<int> writeConCounter;
+
+extern std::recursive_mutex sceneMutex;

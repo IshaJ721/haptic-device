@@ -17,4 +17,11 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         raise SystemExit("usage: python ase_file_io.py <structure-file>")
 
-    print(get_state_information(sys.argv[1]))
+    info = get_state_information(sys.argv[1])
+    print(len(info["positions"]))
+    for position in info["positions"]:
+        print(f"{position[0]} {position[1]} {position[2]}")
+    print(" ".join(str(number) for number in info["atomic_numbers"]))
+    for row in info["cell"]:
+        print(" ".join(str(value) for value in row))
+    print(" ".join("1" if flag else "0" for flag in info["pbc"]))

@@ -58,7 +58,7 @@ Check WINDOWS.md for details on installation.
     ```
 4. Clone this repo into the CHAI3D directory so it sits next to `src`, `examples`, and `build`
 5. Create the directory `data` in `bin/resources` and move the file `global_minima.txt` there
-6. Run `make` in the `haptic-device` folder
+6. Run `make -C haptic-device` in the `Chai3D` folder
 7. Your directory structure should look like so:
 <pre>
 chai3d/
