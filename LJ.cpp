@@ -1114,12 +1114,17 @@ cVector3d stepSimulation(const cVector3d& requestedPosition,
         simulatedCurrentAtom = spheres.size() + simulatedCurrentAtom;
       }
 
-      while (spheres[simulatedCurrentAtom]->isAnchor()) {
-        simulatedCurrentAtom = remainder(simulatedCurrentAtom + 1, spheres.size());
-        if (simulatedCurrentAtom < 0) {
-          simulatedCurrentAtom = spheres.size() + simulatedCurrentAtom;
-        }
-      }
+      int startAtom = simulatedCurrentAtom;
+while (spheres[simulatedCurrentAtom]->isAnchor()) {
+    simulatedCurrentAtom = remainder(simulatedCurrentAtom + 1, spheres.size());
+    if (simulatedCurrentAtom < 0) {
+        simulatedCurrentAtom = spheres.size() + simulatedCurrentAtom;
+    }
+    if (simulatedCurrentAtom == startAtom) {
+        // All atoms are anchored, stay on current atom
+        break;
+    }
+}
       current = spheres[simulatedCurrentAtom];
       previous = spheres[previous_curr_atom];
       cVector3d A = current->getLocalPos();
