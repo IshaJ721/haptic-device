@@ -88,16 +88,16 @@ const int NUM_CAM = 2;
 
 // position of walls and ground
 const double WALL_GROUND = 0.0 + SPHERE_RADIUS;
-const double WALL_CEILING = 0.05;  // 0.2;
-const double WALL_LEFT = -0.05;    //-0.1;
-const double WALL_RIGHT = 0.05;    // 0.2;
-const double WALL_FRONT = 0.05;    // 0.08;
-const double WALL_BACK = -0.05;    //-0.08;
+const double WALL_CEILING = 0.05; // 0.2;
+const double WALL_LEFT = -0.05;   //-0.1;
+const double WALL_RIGHT = 0.05;   // 0.2;
+const double WALL_FRONT = 0.05;   // 0.08;
+const double WALL_BACK = -0.05;   //-0.08;
 const double SPHERE_STIFFNESS = 500.0;
 const double SPHERE_MASS_SCALE_FACTOR = 0.02;
-const double F_DAMPING = 0.25;  // 0.25
-const double V_DAMPING = 0.8;   // 0.1
-const double A_DAMPING = 0.99;  // 0.5
+const double F_DAMPING = 0.25; // 0.25
+const double V_DAMPING = 0.8;  // 0.1
+const double A_DAMPING = 0.99; // 0.5
 const double K_MAGNET = 500.0;
 const double HAPTIC_STIFFNESS = 1000.0;
 const double SIGMA = 1.0;
@@ -146,7 +146,7 @@ const cVector3d backPlaneNorm =
 // DECLARED VARIABLES
 //------------------------------------------------------------------------------
 // calculator
-Calculator* calculatorPtr;
+Calculator *calculatorPtr;
 
 // radius of the camera
 double rho = .35;
@@ -306,7 +306,7 @@ void updateGraphics(void);
 void updateHaptics(void);
 
 // this function advances the atom simulation for one time step
-cVector3d stepSimulation(const cVector3d& position,
+cVector3d stepSimulation(const cVector3d &position,
                          const double timeInterval,
                          const bool button1,
                          const bool button2,
@@ -327,32 +327,38 @@ void writeToCon(string fileName);
 //------------------------------------------------------------------------------
 // RESOURCE HELPERS
 //------------------------------------------------------------------------------
-static string getExecutableDir() {
+static string getExecutableDir()
+{
   char buffer[4096];
   ssize_t length = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
-  if (length <= 0) {
+  if (length <= 0)
+  {
     return "";
   }
 
   buffer[length] = '\0';
   string executablePath(buffer);
   size_t separator = executablePath.find_last_of('/');
-  if (separator == string::npos) {
+  if (separator == string::npos)
+  {
     return "";
   }
 
   return executablePath.substr(0, separator);
 }
 
-static vector<string> getResourceSearchRoots() {
+static vector<string> getResourceSearchRoots()
+{
   vector<string> roots;
 
-  if (!resourceRoot.empty()) {
+  if (!resourceRoot.empty())
+  {
     roots.push_back(resourceRoot);
   }
 
   string executableDir = getExecutableDir();
-  if (!executableDir.empty()) {
+  if (!executableDir.empty())
+  {
     roots.push_back(executableDir + "/");
     roots.push_back(executableDir + "/../");
   }
@@ -365,10 +371,13 @@ static vector<string> getResourceSearchRoots() {
 }
 
 template <typename Loader>
-static bool loadChaiResource(Loader loader, const string& relativePath) {
-  for (const string& root : getResourceSearchRoots()) {
+static bool loadChaiResource(Loader loader, const string &relativePath)
+{
+  for (const string &root : getResourceSearchRoots())
+  {
     const string candidate = root + relativePath;
-    if (loader(candidate.c_str())) {
+    if (loader(candidate.c_str()))
+    {
       return true;
     }
   }
@@ -376,19 +385,23 @@ static bool loadChaiResource(Loader loader, const string& relativePath) {
   return false;
 }
 
-static bool isFiniteVector(const cVector3d& value) {
+static bool isFiniteVector(const cVector3d &value)
+{
   return std::isfinite(value.x()) && std::isfinite(value.y()) &&
          std::isfinite(value.z());
 }
 
-static cVector3d clampVectorMagnitude(const cVector3d& value,
-                                      const double maxMagnitude) {
-  if (!isFiniteVector(value)) {
+static cVector3d clampVectorMagnitude(const cVector3d &value,
+                                      const double maxMagnitude)
+{
+  if (!isFiniteVector(value))
+  {
     return cVector3d(0.0, 0.0, 0.0);
   }
 
   const double length = value.length();
-  if (length > maxMagnitude && length > 0.0) {
+  if (length > maxMagnitude && length > 0.0)
+  {
     return maxMagnitude * cNormalize(value);
   }
   return value;
@@ -404,7 +417,8 @@ static cVector3d clampVectorMagnitude(const cVector3d& value,
 // current camera
 int curr_camera = 1;
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
   //--------------------------------------------------------------------------
   // INITIALIZATION
   //--------------------------------------------------------------------------
@@ -412,15 +426,19 @@ int main(int argc, char *argv[]) {
   cout << "-----------------------------------" << endl;
   cout << "CHAI3D" << endl;
   cout << "Press CTRL for help" << endl;
-  cout << "-----------------------------------" << endl << endl << endl;
-  cout << endl << endl;
+  cout << "-----------------------------------" << endl
+       << endl
+       << endl;
+  cout << endl
+       << endl;
   // seed random
   srand(time(NULL));
   //--------------------------------------------------------------------------
   // OPEN GL - WINDOW DISPLAY
   //--------------------------------------------------------------------------
   // initialize GLFW library
-  if (!glfwInit()) {
+  if (!glfwInit())
+  {
     cout << "failed initialization" << endl;
     cSleepMs(1000);
     return 1;
@@ -433,9 +451,12 @@ int main(int argc, char *argv[]) {
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
 
   // set active stereo mode
-  if (stereoMode == C_STEREO_ACTIVE) {
+  if (stereoMode == C_STEREO_ACTIVE)
+  {
     glfwWindowHint(GLFW_STEREO, GL_TRUE);
-  } else {
+  }
+  else
+  {
     glfwWindowHint(GLFW_STEREO, GL_FALSE);
   }
 
@@ -450,7 +471,8 @@ int main(int argc, char *argv[]) {
 
   // create display context
   window = glfwCreateWindow(windowWidth, windowHeight, "CHAI3D", NULL, NULL);
-  if (!window) {
+  if (!window)
+  {
     cout << "failed to create window" << endl;
     cSleepMs(1000);
     glfwTerminate();
@@ -482,7 +504,8 @@ int main(int argc, char *argv[]) {
   glfwSwapInterval(swapInterval);
 #ifdef GLEW_VERSION
   // initialize GLEW library
-  if (glewInit() != GLEW_OK) {
+  if (glewInit() != GLEW_OK)
+  {
     cout << "failed to initialize GLEW library" << endl;
     glfwTerminate();
     return 1;
@@ -562,11 +585,13 @@ int main(int argc, char *argv[]) {
   handler = new cHapticDeviceHandler();
 
   // get access to the first available haptic device
-  if (handler->getNumDevices() > 0) {
+  if (handler->getNumDevices() > 0)
+  {
     handler->getDevice(hapticDevice, 0);
   }
 
-  if (hapticDevice) {
+  if (hapticDevice)
+  {
     // retrieve information about the current haptic device
     cHapticDeviceInfo hapticDeviceInfo = hapticDevice->getSpecifications();
 
@@ -576,7 +601,9 @@ int main(int argc, char *argv[]) {
     // if the haptic devices carries a gripper, enable it to behave like a user
     // switch
     hapticDevice->setEnableGripperUserSwitch(true);
-  } else {
+  }
+  else
+  {
     hapticDeviceMaxStiffness = HAPTIC_STIFFNESS;
     cout << "No haptic device detected. Running in keyboard/mouse-only mode."
          << endl;
@@ -588,9 +615,11 @@ int main(int argc, char *argv[]) {
   cTexture2dPtr texture = cTexture2d::create();
   // load texture file
   bool fileload = loadChaiResource(
-      [&](const char* path) { return texture->loadFromFile(path); },
+      [&](const char *path)
+      { return texture->loadFromFile(path); },
       "resources/images/spheremap-3.jpg");
-  if (!fileload) {
+  if (!fileload)
+  {
     cout << "Error - Texture image failed to load correctly." << endl;
     close();
     return (-1);
@@ -601,10 +630,12 @@ int main(int argc, char *argv[]) {
   std::array<int, 3> asePbc = {0, 0, 0};
 
   // either no arguments were given or argument was an integer
-  if (argc == 1 || isNumber(argv[1])) {
+  if (argc == 1 || isNumber(argv[1]))
+  {
     // set numSpheres to input; if none or negative, default is five
     int numSpheres = argc > 1 ? atoi(argv[1]) : 5;
-    for (int i = 0; i < numSpheres; i++) {
+    for (int i = 0; i < numSpheres; i++)
+    {
       // create a sphere and define its radius
       Atom *new_atom = new Atom(SPHERE_RADIUS, 1);
 
@@ -619,28 +650,37 @@ int main(int argc, char *argv[]) {
 
       // Atom spawning
       bool inside_atom = true;
-      if (i != 0) {
+      if (i != 0)
+      {
         bool collision_detected;
         auto iter{0};
-        while (inside_atom) {
+        while (inside_atom)
+        {
           // Place atom at a random position
-          if (iter > 1000) {
+          if (iter > 1000)
+          {
             // If there are too many failed attempts at placing the atom
             // increase the radius in which it can spawn
             new_atom->setInitialPosition(.115);
-          } else {
+          }
+          else
+          {
             new_atom->setInitialPosition();
           }
 
           // Check that it doesn't collide with any others
           collision_detected = false;
-          for (auto i{0}; i < spheres.size(); i++) {
+          for (auto i{0}; i < spheres.size(); i++)
+          {
             auto dist_between =
                 cDistance(new_atom->getLocalPos(), spheres[i]->getLocalPos());
             dist_between = dist_between / .02;
-            if (dist_between == 0) {
+            if (dist_between == 0)
+            {
               continue;
-            } else if (dist_between < 1.5) {
+            }
+            else if (dist_between < 1.5)
+            {
               // The number dist between is being compared to
               // is the threshold for collision
               collision_detected = true;
@@ -649,7 +689,8 @@ int main(int argc, char *argv[]) {
             }
           }
 
-          if (!collision_detected) {
+          if (!collision_detected)
+          {
             inside_atom = false;
           }
         }
@@ -661,29 +702,36 @@ int main(int argc, char *argv[]) {
       new_atom->setUseTexture(true);
 
       // set the first sphere to the current
-      if (i == 0)  {
+      if (i == 0)
+      {
         new_atom->setCurrent(true);
       }
     }
-  } else {  // read in specified file
+  }
+  else
+  { // read in specified file
     AseStructureData structure;
-    try {
+    try
+    {
       structure = loadAseStructure(argv[1]);
-    } catch (const std::exception& ex) {
+    }
+    catch (const std::exception &ex)
+    {
       cerr << ex.what() << endl;
       close();
       return 1;
     }
-    const std::vector<std::array<double, 3>>& positions = structure.positions;
-    const std::vector<int>& startingAtomicNrs = structure.atomicNumbers;
+    const std::vector<std::array<double, 3>> &positions = structure.positions;
+    const std::vector<int> &startingAtomicNrs = structure.atomicNumbers;
     aseCell = structure.cell;
     asePbc = structure.pbc;
     const int nAtoms = static_cast<int>(positions.size());
 
     // create atoms objects, put them in spheres, world
-    for (int i = 0; i < nAtoms; i++) {
+    for (int i = 0; i < nAtoms; i++)
+    {
       // Create atom pointer
-      Atom* newAtom = new Atom(SPHERE_RADIUS, startingAtomicNrs[i]);
+      Atom *newAtom = new Atom(SPHERE_RADIUS, startingAtomicNrs[i]);
 
       // store pointer to sphere primitive
       spheres.push_back(newAtom);
@@ -700,52 +748,68 @@ int main(int argc, char *argv[]) {
       newAtom->setUseTexture(true);
 
       // Set the positions of all atoms
-      if (i == 0) {
+      if (i == 0)
+      {
         // make very first atom the current atom
         newAtom->setCurrent(true);
         // get coordinates from pPositionTriplet
-        for (int j = 0; j < 3; j++) {
+        for (int j = 0; j < 3; j++)
+        {
           centerCoords[j] = positions[0][static_cast<size_t>(j)];
         }
         // set first atom at center of view
         newAtom->setLocalPos(0.0, 0.0, 0.0);
-      } else {
+      }
+      else
+      {
         // Anchor by default
         newAtom->setAnchor(true);
         // scale coordinates and insert
         newAtom->setLocalPos(
-          0.02 * (positions[i][0] - centerCoords[0]), // position offset -- should probably disappear once we get boxes working
-          0.02 * (positions[i][1] - centerCoords[1]),
-          0.02 * (positions[i][2] - centerCoords[2])
-        );
-      }    
+            0.02 * (positions[i][0] - centerCoords[0]), // position offset -- should probably disappear once we get boxes working
+            0.02 * (positions[i][1] - centerCoords[1]),
+            0.02 * (positions[i][2] - centerCoords[2]));
+      }
     }
   }
 
   // Done reading any sort of info. Now setting up calculator selection
-  for (int i = 0; i < spheres.size(); i++) {
+  for (int i = 0; i < spheres.size(); i++)
+  {
     spheres[i]->setVelocity(0);
   }
   // determine potential if specified
-  if (argc > 2) {
+  if (argc > 2)
+  {
     // convert to lowercase
     string arg = argv[2];
-    for (char &c : arg) {
+    for (char &c : arg)
+    {
       c = tolower(c);
     }
-    if (arg == "morse" || arg == "m") {
+    if (arg == "morse" || arg == "m")
+    {
       energySurface = MORSE;
       calculatorPtr = new morseCalculator();
-    }else if (arg == "ase" || arg == "a"){
+    }
+    else if (arg == "ase" || arg == "a")
+    {
       energySurface = ASE;
       const std::string calculatorSpec = (argc > 3) ? argv[3] : "";
       calculatorPtr = new aseCalculator(calculatorSpec, aseCell, asePbc);
     }
-    else if (arg == "lennard-jones" || arg == "lj") {
+    else if (arg == "lennard-jones" || arg == "lj")
+    {
       calculatorPtr = new ljCalculator();
     }
+    // else if (arg == "native")
+    // {
+    //   energySurface = NATIVE;
+    //   calculatorPtr = new nativeCalculator();
+    // }
   }
-  else {
+  else
+  {
     calculatorPtr = new ljCalculator();
   }
   //--------------------------------------------------------------------------
@@ -795,9 +859,11 @@ int main(int argc, char *argv[]) {
 
   // load background image
   fileload = loadChaiResource(
-      [&](const char* path) { return background->loadFromFile(path); },
+      [&](const char *path)
+      { return background->loadFromFile(path); },
       "resources/images/background.png");
-  if (!fileload) {
+  if (!fileload)
+  {
     cout << "Error - Image failed to load correctly." << endl;
     close();
     return (-1);
@@ -810,16 +876,22 @@ int main(int argc, char *argv[]) {
   scope->setTransparencyLevel(.7);
   global_minimum = getGlobalMinima(spheres.size());
   double lower_bound, upper_bound;
-  if (global_minimum != 0 && (energySurface == LENNARD_JONES)) {
-    if (global_minimum > -50) {
+  if (global_minimum != 0 && (energySurface == LENNARD_JONES))
+  {
+    if (global_minimum > -50)
+    {
       upper_bound = 0;
       lower_bound = global_minimum - .5;
-    } else {
+    }
+    else
+    {
       upper_bound = 0 + (global_minimum * .2);
       lower_bound = global_minimum - 3;
     }
     global_min_known = true;
-  } else {
+  }
+  else
+  {
     upper_bound = 0;
     lower_bound = static_cast<int>(spheres.size()) * -3;
     global_minimum = 0;
@@ -877,7 +949,8 @@ int main(int argc, char *argv[]) {
   //--------------------------------------------------------------------------
   // create a thread which starts the main haptics rendering loop
   hapticsThread = nullptr;
-  if (hapticDevice) {
+  if (hapticDevice)
+  {
     hapticsThread = new cThread();
     hapticsThread->start(updateHaptics, CTHREAD_PRIORITY_HAPTICS);
   }
@@ -889,11 +962,16 @@ int main(int argc, char *argv[]) {
   // set energy surface label
   potentialLabel->setLocalPos(0, 0);
   string potentialName;
-  if (energySurface == LENNARD_JONES) {
+  if (energySurface == LENNARD_JONES)
+  {
     potentialName = "Lennard Jones Potential";
-  } else if (energySurface == MORSE) {
+  }
+  else if (energySurface == MORSE)
+  {
     potentialName = "Morse Potential";
-  } else if (energySurface == ASE) {
+  }
+  else if (energySurface == ASE)
+  {
     potentialName = "ASE Potential";
   }
   potentialLabel->setText("Potential energy surface: " + potentialName);
@@ -906,11 +984,13 @@ int main(int argc, char *argv[]) {
   keyboardModeClock.reset();
   keyboardModeClock.start();
   // main graphic loop
-  while (!glfwWindowShouldClose(window)) {
+  while (!glfwWindowShouldClose(window))
+  {
     // get width and height of window
     glfwGetWindowSize(window, &width, &height);
 
-    if (!hapticDevice) {
+    if (!hapticDevice)
+    {
       keyboardModeClock.stop();
       double timeInterval =
           cMin(KEYBOARD_SIM_DT_MAX, keyboardModeClock.getCurrentTimeSeconds());
@@ -943,31 +1023,38 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
-void windowSizeCallback(GLFWwindow *a_window, int a_width, int a_height) {
+void windowSizeCallback(GLFWwindow *a_window, int a_width, int a_height)
+{
   // update window size
   width = a_width;
   height = a_height;
 }
 
-void errorCallback(int a_error, const char *a_description) {
+void errorCallback(int a_error, const char *a_description)
+{
   cout << "Error: " << a_description << endl;
 }
 
-void close(void) {  // stop the simulation
+void close(void)
+{ // stop the simulation
   static bool closed = false;
-  if (closed) {
+  if (closed)
+  {
     return;
   }
   closed = true;
 
   simulationRunning = false;
-  if (hapticsThreadStarted.load()) {
+  if (hapticsThreadStarted.load())
+  {
     // wait for graphics and haptics loops to terminate
-    while (!simulationFinished) {
+    while (!simulationFinished)
+    {
       cSleepMs(100);
     }
   }
-  if (calculatorPtr != nullptr) {
+  if (calculatorPtr != nullptr)
+  {
     delete calculatorPtr;
     calculatorPtr = nullptr;
   }
@@ -980,7 +1067,8 @@ void close(void) {  // stop the simulation
   handler = nullptr;
 }
 //-----------------------------------------------------------------------------
-void updateGraphics(void) {
+void updateGraphics(void)
+{
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
   /////////////////////////////////////////////////////////////////////
   // UPDATE WIDGETS
@@ -999,30 +1087,41 @@ void updateGraphics(void) {
   isFrozen->setLocalPos((width - isFrozen->getWidth()) - 5, 15);
 
   screenshotLabel->setLocalPos(5, height - 20);
-  if (screenshotCounter == 5000) {
+  if (screenshotCounter == 5000)
+  {
     screenshotLabel->setShowEnabled(true);
     screenshotCounter--;
-  } else if (screenshotCounter > 0) {
+  }
+  else if (screenshotCounter > 0)
+  {
     screenshotCounter--;
-  } else if (screenshotCounter == 0) {
+  }
+  else if (screenshotCounter == 0)
+  {
     screenshotLabel->setShowEnabled(false);
     screenshotCounter--;
   }
 
   writeConLabel->setLocalPos(5, height - 40);
-  if (writeConCounter == 5000) {
+  if (writeConCounter == 5000)
+  {
     writeConLabel->setShowEnabled(true);
     writeConCounter--;
-  } else if (writeConCounter > 0) {
+  }
+  else if (writeConCounter > 0)
+  {
     writeConCounter--;
-  } else if (writeConCounter == 0) {
+  }
+  else if (writeConCounter == 0)
+  {
     writeConLabel->setShowEnabled(false);
     writeConCounter--;
   }
 
   helpPanel->setLocalPos(width - 550, height - 530);
   helpHeader->setLocalPos(width - 490, height - 70);
-  for (int i = 0; i < hotkeyKeys.size(); i++) {
+  for (int i = 0; i < hotkeyKeys.size(); i++)
+  {
     cLabel *tempKeyLabel = hotkeyKeys[i];
     cLabel *tempFuncLabel = hotkeyFunctions[i];
     tempKeyLabel->setLocalPos(width - 540, height - 130 - i * 25);
@@ -1039,7 +1138,8 @@ void updateGraphics(void) {
   num_anchored->setLocalPos((width - num_anchored->getWidth()) - 5, 0);
 
   scope->setSignalValues(potentialEnergy, global_minimum);
-  if (!global_min_known && global_minimum < scope->getRangeMin()) {
+  if (!global_min_known && global_minimum < scope->getRangeMin())
+  {
     auto new_lower = scope->getRangeMin() - 25;
     auto new_upper = scope->getRangeMax() - 25;
     scope->setRange(new_lower, new_upper);
@@ -1061,189 +1161,242 @@ void updateGraphics(void) {
 
   // check for any OpenGL errors
   GLenum err = glGetError();
-  if (err != GL_NO_ERROR) cout << "Error: " << gluErrorString(err) << endl;
+  if (err != GL_NO_ERROR)
+    cout << "Error: " << gluErrorString(err) << endl;
 }
 
-cVector3d stepSimulation(const cVector3d& requestedPosition,
+cVector3d stepSimulation(const cVector3d &requestedPosition,
                          const double timeInterval,
                          const bool button1,
                          const bool button2,
-                         const bool hasHapticDevice) {
+                         const bool hasHapticDevice)
+{
   std::lock_guard<std::recursive_mutex> lock(sceneMutex);
-  if (spheres.empty()) {
+
+  if (spheres.empty())
+  {
     return cVector3d(0.0, 0.0, 0.0);
   }
 
-  Atom* current = spheres[simulatedCurrentAtom];
-  Atom* previous = current;
+  static std::vector<cVector3d> previousForces;
+  static std::vector<cVector3d> previousPositions;
+
+  if (previousForces.size() != spheres.size())
+  {
+    previousForces.resize(spheres.size(), cVector3d(0.0, 0.0, 0.0));
+    previousPositions.resize(spheres.size());
+
+    for (int i = 0; i < spheres.size(); i++)
+    {
+      previousPositions[i] = spheres[i]->getLocalPos();
+    }
+  }
+
+  const double K_HAPTIC = 200.0;
+  const double MAX_HAPTIC_FORCE = 1000.0;
+
+  Atom *current = spheres[simulatedCurrentAtom];
   cVector3d position = hasHapticDevice ? requestedPosition : current->getLocalPos();
 
-  if (button2) {
-    if (!simulatedButton2Changed) {
-      switch (curr_camera) {
-        case 1:
-          camera->setSphericalPolarRad(0);
-          camera->setSphericalAzimuthRad(0);
-          break;
-        case 2:
-          camera->setSphericalPolarRad(0);
-          camera->setSphericalAzimuthRad(M_PI);
-          break;
-        case 3:
-          camera->setSphericalPolarRad(M_PI);
-          camera->setSphericalAzimuthRad(M_PI);
-          break;
-        case 4:
-          curr_camera = 0;
-          camera->setSphericalPolarRad(M_PI);
-          camera->setSphericalAzimuthRad(0);
-          break;
+  if (button2)
+  {
+    if (!simulatedButton2Changed)
+    {
+      switch (curr_camera)
+      {
+      case 1:
+        camera->setSphericalPolarRad(0);
+        camera->setSphericalAzimuthRad(0);
+        break;
+      case 2:
+        camera->setSphericalPolarRad(0);
+        camera->setSphericalAzimuthRad(M_PI);
+        break;
+      case 3:
+        camera->setSphericalPolarRad(M_PI);
+        camera->setSphericalAzimuthRad(M_PI);
+        break;
+      case 4:
+        curr_camera = 0;
+        camera->setSphericalPolarRad(M_PI);
+        camera->setSphericalAzimuthRad(0);
+        break;
       }
       curr_camera++;
       simulatedButton2Changed = true;
     }
-  } else {
+  }
+  else
+  {
     simulatedButton2Changed = false;
   }
 
-  if (button1) {
-    if (!simulatedButton1Changed) {
+  if (button1)
+  {
+    if (!simulatedButton1Changed)
+    {
       int previous_curr_atom = simulatedCurrentAtom;
+
       simulatedCurrentAtom = remainder(simulatedCurrentAtom + 1, spheres.size());
-      if (simulatedCurrentAtom < 0) {
-        simulatedCurrentAtom = spheres.size() + simulatedCurrentAtom;
-      }
+      if (simulatedCurrentAtom < 0)
+        simulatedCurrentAtom += spheres.size();
 
       int startAtom = simulatedCurrentAtom;
-while (spheres[simulatedCurrentAtom]->isAnchor()) {
-    simulatedCurrentAtom = remainder(simulatedCurrentAtom + 1, spheres.size());
-    if (simulatedCurrentAtom < 0) {
-        simulatedCurrentAtom = spheres.size() + simulatedCurrentAtom;
-    }
-    if (simulatedCurrentAtom == startAtom) {
-        // All atoms are anchored, stay on current atom
-        break;
-    }
-}
+      while (spheres[simulatedCurrentAtom]->isAnchor())
+      {
+        simulatedCurrentAtom = remainder(simulatedCurrentAtom + 1, spheres.size());
+        if (simulatedCurrentAtom < 0)
+          simulatedCurrentAtom += spheres.size();
+
+        if (simulatedCurrentAtom == startAtom)
+          break;
+      }
+
       current = spheres[simulatedCurrentAtom];
-      previous = spheres[previous_curr_atom];
+      Atom *previous = spheres[previous_curr_atom];
+
       cVector3d A = current->getLocalPos();
 
       previous->setCurrent(false);
       previous->setLocalPos(A);
       current->setCurrent(true);
       current->setLocalPos(position);
-      cVector3d translate = previous->getLocalPos() - current->getLocalPos();
 
-      for (int i = 0; i < spheres.size(); i++) {
-        Atom* traverser = spheres[i];
-        if (i != simulatedCurrentAtom) {
-          if (i == previous_curr_atom) {
-            traverser->setLocalPos(previous->getLocalPos() - (2.0 * translate));
-          } else {
-            traverser->setLocalPos(traverser->getLocalPos() - translate);
-          }
-        }
-      }
       simulatedButton1Changed = true;
     }
-  } else {
+  }
+  else
+  {
     simulatedButton1Changed = false;
   }
 
-  if (!freezeAtoms.load()) {
-    for (Atom* sphere : spheres) {
-      if (!isFiniteVector(sphere->getLocalPos()) ||
-          !isFiniteVector(sphere->getVelocity())) {
-        sphere->setVelocity(cVector3d(0.0, 0.0, 0.0));
-        sphere->setForce(cVector3d(0.0, 0.0, 0.0));
-        if (!isFiniteVector(sphere->getLocalPos())) {
-          sphere->setLocalPos(0.0, 0.0, 0.0);
+  if (!freezeAtoms.load())
+  {
+    vector<vector<double>> forcesVec = calculatorPtr->getFandU(spheres);
+    double potentialEnergy = forcesVec[spheres.size()][0];
+
+    // const double F_MAX = 2000.0;
+    const double CONTACT_RADIUS = 0.25;
+
+    for (int i = 0; i < spheres.size(); i++)
+    {
+      Atom *atom = spheres[i];
+
+      cVector3d force(
+          forcesVec[i][0],
+          forcesVec[i][1],
+          forcesVec[i][2]);
+
+      if (!isFiniteVector(force))
+        force.zero();
+
+      double fmag = force.length();
+      // if (fmag > F_MAX)
+      // {
+      //   force *= (F_MAX / fmag);
+      // }
+
+      cVector3d xi = atom->getLocalPos();
+
+      for (int j = 0; j < spheres.size(); j++)
+      {
+        if (i == j)
+          continue;
+
+        cVector3d r = xi - spheres[j]->getLocalPos();
+        double dist = r.length();
+
+        if (dist < CONTACT_RADIUS && dist > 1e-6)
+        {
+          cVector3d dir = r / dist;
+          double penetration = CONTACT_RADIUS - dist;
+
+          force += dir * (5000.0 * penetration);
         }
       }
+
+      atom->setForce(force);
     }
 
-    double potentialEnergy = 0;
-    vector<vector<double>> forcesVec = calculatorPtr->getFandU(spheres);
-    potentialEnergy += forcesVec[spheres.size()][0];
-    for (int i = 0; i < spheres.size(); i++) {
-      cVector3d force = cVector3d(forcesVec[i][0], forcesVec[i][1], forcesVec[i][2]);
-      if (!isFiniteVector(force)) {
-        force.zero();
-      }
-      current = spheres[i];
-      current->setForce(force);
-      cVector3d sphereAcc =
-          force / (current->getMass() * SPHERE_MASS_SCALE_FACTOR);
-      if (!isFiniteVector(sphereAcc)) {
-        sphereAcc.zero();
-      }
-      current->setVelocity(clampVectorMagnitude(
-          V_DAMPING * (current->getVelocity() + timeInterval * sphereAcc),
-          MAX_ATOM_SPEED));
-      cVector3d spherePos_change =
-          clampVectorMagnitude(
-              timeInterval * current->getVelocity() +
-                  cSqr(timeInterval) * sphereAcc,
-              MAX_ATOM_STEP);
-      cVector3d spherePos = current->getLocalPos() + spherePos_change;
-      if (!isFiniteVector(spherePos)) {
-        spherePos = current->getLocalPos();
+    for (int i = 0; i < spheres.size(); i++)
+    {
+      Atom *atom = spheres[i];
+
+      cVector3d x_old = previousPositions[i];
+      cVector3d x_curr = atom->getLocalPos();
+
+      cVector3d force = atom->getForce();
+
+      cVector3d acc =
+          force / (atom->getMass() * SPHERE_MASS_SCALE_FACTOR);
+
+      if (!isFiniteVector(acc))
+        acc.zero();
+
+      cVector3d x_new =
+          x_curr + (x_curr - x_old) + acc * timeInterval * timeInterval;
+
+      previousPositions[i] = x_curr;
+
+      applyDavidBoundaryConditions(x_curr, x_curr);
+
+      applySeanBoundaryConditions(
+          x_curr, x_curr, x_curr,
+          northPlanePos, northPlaneNorm,
+          southPlanePos, southPlaneNorm,
+          eastPlanePos, eastPlaneNorm,
+          westPlanePos, westPlaneNorm,
+          forwardPlanePos, forwardPlaneNorm,
+          backPlanePos, backPlaneNorm,
+          BOUNDARY_LIMIT);
+
+      if (!atom->isCurrent() && !atom->isAnchor())
+      {
+        atom->setLocalPos(x_new);
       }
 
-      cVector3d A = current->getLocalPos();
-      cVector3d B = spherePos;
-      applyDavidBoundaryConditions(A, B);
-      applySeanBoundaryConditions(A,
-                                  B,
-                                  spherePos,
-                                  northPlanePos,
-                                  northPlaneNorm,
-                                  southPlanePos,
-                                  southPlaneNorm,
-                                  eastPlanePos,
-                                  eastPlaneNorm,
-                                  westPlanePos,
-                                  westPlaneNorm,
-                                  forwardPlanePos,
-                                  forwardPlaneNorm,
-                                  backPlanePos,
-                                  backPlaneNorm,
-                                  BOUNDARY_LIMIT);
-
-      if (!current->isCurrent() && !current->isAnchor()) {
-        current->setLocalPos(spherePos);
-      }
-    }
-
-    current = spheres[simulatedCurrentAtom];
-    if (hasHapticDevice) {
-      current->setLocalPos(position);
+      cVector3d v = (x_new - x_old) / timeInterval;
+      atom->setVelocity(v);
     }
 
     displayedPotentialEnergy.store(potentialEnergy);
-    auto anchored{0};
-    for (auto i{0}; i < spheres.size(); i++) {
-      if (spheres[i]->isAnchor()) {
-        anchored++;
-      }
-    }
-    displayedAnchoredCount.store(anchored);
-
-    if (!global_min_known && potentialEnergy < global_minimum) {
-      global_minimum = potentialEnergy;
-    }
   }
 
   current = spheres[simulatedCurrentAtom];
+
+  if (hasHapticDevice)
+  {
+    cVector3d x = current->getLocalPos();
+
+    cVector3d diff = position - x;
+    double dist = diff.length();
+
+    cVector3d hapticForce(0, 0, 0);
+
+    if (dist > 1e-6)
+    {
+      double k = K_HAPTIC;
+
+      hapticForce = k * diff;
+      hapticForce = clampVectorMagnitude(hapticForce, MAX_HAPTIC_FORCE);
+    }
+
+    current->setForce(current->getForce() + hapticForce);
+    current->setLocalPos(position);
+  }
+
   cVector3d force = current->getForce();
-  for (int i = 0; i < spheres.size(); i++) {
+
+  for (int i = 0; i < spheres.size(); i++)
+  {
     spheres[i]->updateVelVector();
   }
+
   return force;
 }
 
-void updateHaptics(void) {
+void updateHaptics(void)
+{
   hapticsThreadStarted.store(true);
 
   // simulation in now running
@@ -1267,7 +1420,8 @@ void updateHaptics(void) {
   // main haptic simulation loop
   bool button3_changed = false;
   bool is_anchor = true;
-  while (simulationRunning) {
+  while (simulationRunning)
+  {
     /////////////////////////////////////////////////////////////////////
     // SIMULATION TIME
     /////////////////////////////////////////////////////////////////////
@@ -1320,10 +1474,12 @@ void updateHaptics(void) {
     /////////////////////////////////////////////////////////////////////////
     // scale the force according to the max stiffness the device can render
     double stiffnessRatio = 0.5;
-    if (hapticDeviceMaxStiffness < HAPTIC_STIFFNESS) {
+    if (hapticDeviceMaxStiffness < HAPTIC_STIFFNESS)
+    {
       stiffnessRatio = hapticDeviceMaxStiffness / HAPTIC_STIFFNESS;
     }
-    if (force.length() > 10) {
+    if (force.length() > 10)
+    {
       force = 10. * cNormalize(force);
     }
     // send computed force to haptic device
